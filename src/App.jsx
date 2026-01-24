@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { HISTORICAL_TIMELINE, CASE_STUDIES, SECTIONS_DATA, EXAM_STATS } from './examData.js';
+import { HISTORICAL_TIMELINE, CASE_STUDIES, EXAM_SECTIONS, EXAM_STATS } from './examData.js';
 
-// FLORIDA REAL ESTATE EXAM - ADAPTIVE STUDY PLATFORM v2.1
-// Features: Progress Persistence, Weakness Tracking, Historical Context, Case Studies, AI Learning
-// Enhanced: Comprehensive explanations, detailed flashcards
+// FLORIDA REAL ESTATE EXAM - ADAPTIVE STUDY PLATFORM v2.2
+// Features: Progress Persistence, Weakness Tracking, Historical Context, Case Studies, AI, PRACTICE EXAM MODE
+// Enhanced: Comprehensive explanations, detailed flashcards, timed 100-question exam
 
 /* Data is now imported from examData.js for easier maintenance */
 
@@ -51,7 +51,6 @@ const BACKUP_SECTIONS = [
   { id: 19, title: "Zoning", percentage: 1, color: "#71717A", topics: ["Police Power"], content: "Police power = health, safety, welfare (no compensation). Eminent domain = compensation required. Variance = hardship deviation.", flashcards: [{ front: "Variance?", back: "Deviation for hardship" }], practiceQuestions: [{ question: "Build higher for hardship:", options: ["Conditional", "Variance", "Spot zoning", "Downzoning"], correct: 1, explanation: "Variance." }] }
 ];
 
-// Use imported data if available, otherwise use backups
 const TIMELINE_DATA = HISTORICAL_TIMELINE?.length > 0 ? HISTORICAL_TIMELINE : BACKUP_TIMELINE;
 const CASES_DATA = CASE_STUDIES?.length > 0 ? CASE_STUDIES : BACKUP_CASES;
 const SECTIONS_DATA = EXAM_SECTIONS?.length > 0 ? EXAM_SECTIONS : BACKUP_SECTIONS;
@@ -81,12 +80,118 @@ export default function App() {
   const [caseSel, setCaseSel] = useState(null);
   const [caseAns, setCaseAns] = useState(false);
   
+  // Exam Mode State
+  const [examMode, setExamMode] = useState(false);
+  const [examQuestions, setExamQuestions] = useState([]);
+  const [examAnswers, setExamAnswers] = useState({});
+  const [examTimeLeft, setExamTimeLeft] = useState(0);
+  const [examStarted, setExamStarted] = useState(false);
+  const [examFinished, setExamFinished] = useState(false);
+  const [examResults, setExamResults] = useState(null);
+  
   const [prog, setProg] = useState(() => {
     try { const s = localStorage.getItem('fl-re-v2'); return s ? JSON.parse(s) : createProgress(); } 
     catch { return createProgress(); }
   });
   
   useEffect(() => { try { localStorage.setItem('fl-re-v2', JSON.stringify(prog)); } catch {} }, [prog]);
+
+  // Exam Timer
+  useEffect(() => {
+    if (!examStarted || examFinished || examTimeLeft <= 0) return;
+    const timer = setInterval(() => {
+      setExamTimeLeft(t => {
+        if (t <= 1) {
+          clearInterval(timer);
+          finishExam();
+          return 0;
+        }
+        return t - 1;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [examStarted, examFinished]);
+
+  // Generate 100-question exam weighted by section percentage
+  const generateExam = () => {
+    const questions = [];
+    const allQuestions = SECTIONS_DATA.flatMap(s => 
+      s.practiceQuestions.map((q, i) => ({ ...q, sid: s.id, st: s.title, qi: i, weight: s.percentage }))
+    );
+    
+    // Shuffle all questions
+    const shuffled = [...allQuestions].sort(() => Math.random() - 0.5);
+    
+    // Try to get weighted distribution, but fill to 100
+    const sectionCounts = {};
+    SECTIONS_DATA.forEach(s => sectionCounts[s.id] = 0);
+    
+    // First pass: respect weights
+    for (const q of shuffled) {
+      const maxForSection = Math.max(2, Math.ceil(q.weight * 1.5)); // At least 2 per section
+      if (sectionCounts[q.sid] < maxForSection && questions.length < 100) {
+        questions.push({ ...q, examIdx: questions.length });
+        sectionCounts[q.sid]++;
+      }
+    }
+    
+    // Second pass: fill remaining slots
+    for (const q of shuffled) {
+      if (questions.length >= 100) break;
+      if (!questions.find(x => x.sid === q.sid && x.qi === q.qi)) {
+        questions.push({ ...q, examIdx: questions.length });
+      }
+    }
+    
+    // If still not enough, duplicate with different order
+    while (questions.length < 100) {
+      const randomQ = shuffled[Math.floor(Math.random() * shuffled.length)];
+      questions.push({ ...randomQ, examIdx: questions.length });
+    }
+    
+    return questions.slice(0, 100).sort(() => Math.random() - 0.5);
+  };
+
+  const startExam = () => {
+    const questions = generateExam();
+    setExamQuestions(questions);
+    setExamAnswers({});
+    setExamTimeLeft(210 * 60); // 3.5 hours = 210 minutes
+    setExamStarted(true);
+    setExamFinished(false);
+    setExamResults(null);
+    setExamMode(true);
+    setTab('exam');
+  };
+
+  const finishExam = () => {
+    let correct = 0;
+    let answered = 0;
+    const sectionResults = {};
+    
+    SECTIONS_DATA.forEach(s => sectionResults[s.id] = { correct: 0, total: 0, title: s.title });
+    
+    examQuestions.forEach((q, i) => {
+      sectionResults[q.sid].total++;
+      if (examAnswers[i] !== undefined) {
+        answered++;
+        if (examAnswers[i] === q.correct) {
+          correct++;
+          sectionResults[q.sid].correct++;
+        }
+      }
+    });
+    
+    setExamResults({
+      correct,
+      total: 100,
+      answered,
+      percentage: Math.round((correct / 100) * 100),
+      passed: correct >= 75,
+      sectionResults
+    });
+    setExamFinished(true);
+  };
 
   const weak = useCallback(() => SECTIONS_DATA.map(s => ({ ...s, m: prog.sections[s.id]?.mastery || 0, t: prog.sections[s.id]?.total || 0 })).filter(s => s.t > 0).sort((a, b) => a.m - b.m).slice(0, 5), [prog]);
   const overall = useCallback(() => { let t = 0, w = 0; SECTIONS_DATA.forEach(s => { const p = prog.sections[s.id]; if (p?.total > 0) { t += p.mastery * s.percentage; w += s.percentage; } }); return w > 0 ? Math.round(t / w) : 0; }, [prog]);
@@ -136,10 +241,14 @@ export default function App() {
       )}
       <div className="bg-white rounded-xl p-6 shadow-lg">
         <h2 className="font-bold text-slate-800 mb-4">Study Actions</h2>
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 gap-3 mb-3">
           <button onClick={() => { setQuiz(genQuiz()); setQIdx(0); setScore({ c: 0, t: 0 }); setAnswer(null); setShowExp(false); setTab('quiz'); }} className="p-3 bg-gradient-to-r from-red-500 to-rose-500 text-white rounded-xl text-sm font-medium">🎯 Adaptive Quiz</button>
+          <button onClick={startExam} className="p-3 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-xl text-sm font-medium">📝 Practice Exam</button>
+        </div>
+        <div className="grid grid-cols-3 gap-3">
           <button onClick={() => setTab('history')} className="p-3 bg-gradient-to-r from-purple-500 to-violet-500 text-white rounded-xl text-sm font-medium">📜 History</button>
           <button onClick={() => setTab('cases')} className="p-3 bg-gradient-to-r from-emerald-500 to-teal-500 text-white rounded-xl text-sm font-medium">⚖️ Cases</button>
+          <button onClick={() => setTab('cards')} className="p-3 bg-gradient-to-r from-blue-500 to-cyan-500 text-white rounded-xl text-sm font-medium">🔄 Flashcards</button>
         </div>
       </div>
       <div className="bg-white rounded-xl p-6 shadow-lg">
@@ -207,10 +316,238 @@ export default function App() {
     </div>
   );
 
+  // PRACTICE EXAM MODE COMPONENT
+  const Exam = () => {
+    const formatTime = (seconds) => {
+      const hrs = Math.floor(seconds / 3600);
+      const mins = Math.floor((seconds % 3600) / 60);
+      const secs = seconds % 60;
+      return `${hrs}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    };
+
+    // Exam Start Screen
+    if (!examStarted) {
+      return (
+        <div className="max-w-2xl mx-auto">
+          <div className="bg-gradient-to-br from-indigo-600 to-purple-700 rounded-2xl p-8 text-white text-center mb-6">
+            <div className="text-5xl mb-4">📝</div>
+            <h1 className="text-3xl font-bold mb-2">Practice Exam</h1>
+            <p className="opacity-80">Simulated Florida Real Estate Exam</p>
+          </div>
+          
+          <div className="bg-white rounded-xl p-6 shadow-lg mb-6">
+            <h2 className="font-bold text-slate-800 mb-4">Exam Details</h2>
+            <div className="grid grid-cols-2 gap-4 mb-6">
+              <div className="bg-slate-50 rounded-lg p-4 text-center">
+                <div className="text-2xl font-bold text-indigo-600">100</div>
+                <div className="text-sm text-slate-600">Questions</div>
+              </div>
+              <div className="bg-slate-50 rounded-lg p-4 text-center">
+                <div className="text-2xl font-bold text-indigo-600">3.5 hrs</div>
+                <div className="text-sm text-slate-600">Time Limit</div>
+              </div>
+              <div className="bg-slate-50 rounded-lg p-4 text-center">
+                <div className="text-2xl font-bold text-emerald-600">75%</div>
+                <div className="text-sm text-slate-600">Passing Score</div>
+              </div>
+              <div className="bg-slate-50 rounded-lg p-4 text-center">
+                <div className="text-2xl font-bold text-amber-600">75/100</div>
+                <div className="text-sm text-slate-600">To Pass</div>
+              </div>
+            </div>
+            
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-6">
+              <h3 className="font-semibold text-amber-800 mb-2">⚠️ Exam Rules</h3>
+              <ul className="text-sm text-amber-700 space-y-1">
+                <li>• Timer starts immediately when you begin</li>
+                <li>• You can navigate between questions</li>
+                <li>• Unanswered questions count as incorrect</li>
+                <li>• You can submit early or wait for timer</li>
+              </ul>
+            </div>
+            
+            <button 
+              onClick={startExam}
+              className="w-full py-4 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-xl font-bold text-lg hover:from-indigo-700 hover:to-purple-700 transition-all"
+            >
+              🚀 Start Exam
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    // Exam Results Screen
+    if (examFinished && examResults) {
+      return (
+        <div className="max-w-2xl mx-auto">
+          <div className={`rounded-2xl p-8 text-white text-center mb-6 ${examResults.passed ? 'bg-gradient-to-br from-emerald-500 to-green-600' : 'bg-gradient-to-br from-red-500 to-rose-600'}`}>
+            <div className="text-5xl mb-4">{examResults.passed ? '🎉' : '📚'}</div>
+            <h1 className="text-3xl font-bold mb-2">{examResults.passed ? 'PASSED!' : 'Not Yet'}</h1>
+            <p className="text-6xl font-bold my-4">{examResults.percentage}%</p>
+            <p className="opacity-80">{examResults.correct} out of {examResults.total} correct</p>
+            {examResults.answered < 100 && <p className="text-sm mt-2 opacity-70">({100 - examResults.answered} unanswered)</p>}
+          </div>
+
+          <div className="bg-white rounded-xl p-6 shadow-lg mb-6">
+            <h2 className="font-bold text-slate-800 mb-4">Results by Section</h2>
+            <div className="space-y-3">
+              {Object.entries(examResults.sectionResults)
+                .sort((a, b) => (b[1].correct/b[1].total || 0) - (a[1].correct/a[1].total || 0))
+                .map(([id, data]) => {
+                  const pct = data.total > 0 ? Math.round((data.correct / data.total) * 100) : 0;
+                  return (
+                    <div key={id} className="flex items-center gap-3">
+                      <div className="flex-1">
+                        <div className="flex justify-between text-sm mb-1">
+                          <span className="text-slate-700">{data.title}</span>
+                          <span className={`font-medium ${pct >= 75 ? 'text-emerald-600' : 'text-red-600'}`}>{data.correct}/{data.total}</span>
+                        </div>
+                        <div className="w-full bg-slate-200 rounded-full h-2">
+                          <div className={`h-2 rounded-full ${pct >= 75 ? 'bg-emerald-500' : 'bg-red-500'}`} style={{ width: `${pct}%` }} />
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+          </div>
+
+          <div className="flex gap-4">
+            <button onClick={() => { setExamMode(false); setExamStarted(false); setTab('dashboard'); }} className="flex-1 py-3 bg-slate-100 text-slate-700 rounded-xl font-medium">
+              Back to Dashboard
+            </button>
+            <button onClick={startExam} className="flex-1 py-3 bg-indigo-600 text-white rounded-xl font-medium">
+              Try Again
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    // Active Exam Screen
+    const currentQ = examQuestions[qIdx];
+    const answeredCount = Object.keys(examAnswers).length;
+    const isLowTime = examTimeLeft < 600; // Less than 10 minutes
+
+    return (
+      <div className="max-w-3xl mx-auto">
+        {/* Exam Header */}
+        <div className={`sticky top-16 z-40 rounded-xl p-4 mb-4 ${isLowTime ? 'bg-red-600' : 'bg-indigo-600'} text-white`}>
+          <div className="flex justify-between items-center">
+            <div>
+              <span className="text-sm opacity-80">Question {qIdx + 1} of 100</span>
+              <div className="text-xs opacity-60">{answeredCount} answered</div>
+            </div>
+            <div className="text-center">
+              <div className={`text-2xl font-mono font-bold ${isLowTime ? 'animate-pulse' : ''}`}>
+                {formatTime(examTimeLeft)}
+              </div>
+              <div className="text-xs opacity-80">Time Remaining</div>
+            </div>
+            <button 
+              onClick={() => { if (confirm('Submit exam now? Unanswered questions will be marked incorrect.')) finishExam(); }}
+              className="px-4 py-2 bg-white/20 hover:bg-white/30 rounded-lg text-sm font-medium"
+            >
+              Submit Exam
+            </button>
+          </div>
+          {/* Progress bar */}
+          <div className="mt-3 flex gap-0.5">
+            {examQuestions.map((_, i) => (
+              <div 
+                key={i} 
+                onClick={() => setQIdx(i)}
+                className={`h-1.5 flex-1 rounded-full cursor-pointer transition-all ${
+                  examAnswers[i] !== undefined 
+                    ? 'bg-emerald-400' 
+                    : i === qIdx 
+                      ? 'bg-white' 
+                      : 'bg-white/30'
+                }`}
+              />
+            ))}
+          </div>
+        </div>
+
+        {/* Question Card */}
+        <div className="bg-white rounded-xl p-6 shadow-lg mb-4">
+          <div className="flex justify-between items-start mb-4">
+            <span className="px-3 py-1 bg-slate-100 text-slate-600 rounded-full text-xs font-medium">{currentQ?.st}</span>
+            <span className="text-slate-400 text-sm">#{qIdx + 1}</span>
+          </div>
+          
+          <h3 className="text-lg font-semibold text-slate-800 mb-6">{currentQ?.question}</h3>
+          
+          <div className="space-y-3">
+            {currentQ?.options.map((opt, i) => (
+              <button
+                key={i}
+                onClick={() => setExamAnswers(prev => ({ ...prev, [qIdx]: i }))}
+                className={`w-full p-4 text-left rounded-xl border-2 transition-all ${
+                  examAnswers[qIdx] === i 
+                    ? 'border-indigo-500 bg-indigo-50' 
+                    : 'border-slate-200 hover:border-slate-300 bg-white'
+                }`}
+              >
+                <span className={`inline-flex w-8 h-8 rounded-lg font-bold mr-3 items-center justify-center text-sm ${
+                  examAnswers[qIdx] === i ? 'bg-indigo-500 text-white' : 'bg-slate-100 text-slate-600'
+                }`}>
+                  {String.fromCharCode(65 + i)}
+                </span>
+                {opt}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Navigation */}
+        <div className="flex gap-3">
+          <button 
+            onClick={() => setQIdx(i => Math.max(0, i - 1))} 
+            disabled={qIdx === 0}
+            className={`flex-1 py-3 rounded-xl font-medium ${qIdx === 0 ? 'bg-slate-100 text-slate-400' : 'bg-slate-200 text-slate-700 hover:bg-slate-300'}`}
+          >
+            ← Previous
+          </button>
+          <button 
+            onClick={() => setQIdx(i => Math.min(99, i + 1))} 
+            disabled={qIdx === 99}
+            className={`flex-1 py-3 rounded-xl font-medium ${qIdx === 99 ? 'bg-slate-100 text-slate-400' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}
+          >
+            Next →
+          </button>
+        </div>
+
+        {/* Question Navigator */}
+        <div className="mt-6 bg-white rounded-xl p-4 shadow">
+          <h4 className="text-sm font-medium text-slate-700 mb-3">Jump to Question</h4>
+          <div className="grid grid-cols-10 gap-1">
+            {examQuestions.map((_, i) => (
+              <button
+                key={i}
+                onClick={() => setQIdx(i)}
+                className={`aspect-square rounded text-xs font-medium ${
+                  examAnswers[i] !== undefined
+                    ? 'bg-emerald-500 text-white'
+                    : i === qIdx
+                      ? 'bg-indigo-600 text-white'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                {i + 1}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
-      <header className="sticky top-0 z-50 bg-white/80 backdrop-blur border-b border-slate-200"><div className="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between"><div className="flex items-center gap-2"><div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-lg flex items-center justify-center text-white font-bold text-sm">FL</div><div><h1 className="text-sm font-bold text-slate-800">FL RE Exam</h1><p className="text-xs text-slate-500">v2 Adaptive</p></div></div><nav className="flex gap-1">{[{ id: 'dashboard', l: '📊' }, { id: 'study', l: '📖' }, { id: 'cards', l: '🔄' }, { id: 'quiz', l: '🎯' }, { id: 'history', l: '📜' }, { id: 'cases', l: '⚖️' }, { id: 'ai', l: '✨' }].map(t => <button key={t.id} onClick={() => setTab(t.id)} className={`px-2 py-1.5 rounded text-sm ${tab === t.id ? 'bg-blue-100 text-blue-700' : 'hover:bg-slate-100 text-slate-600'}`}>{t.l}</button>)}</nav></div></header>
-      <main className="max-w-3xl mx-auto px-4 py-6">{tab === 'dashboard' && <Dashboard />}{tab === 'study' && <Study />}{tab === 'cards' && <Cards />}{tab === 'quiz' && <Quiz />}{tab === 'history' && <History />}{tab === 'cases' && <Cases />}{tab === 'ai' && <AI />}</main>
+      <header className="sticky top-0 z-50 bg-white/80 backdrop-blur border-b border-slate-200"><div className="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between"><div className="flex items-center gap-2"><div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-lg flex items-center justify-center text-white font-bold text-sm">FL</div><div><h1 className="text-sm font-bold text-slate-800">FL RE Exam</h1><p className="text-xs text-slate-500">v2.2 Adaptive</p></div></div><nav className="flex gap-1">{[{ id: 'dashboard', l: '📊' }, { id: 'study', l: '📖' }, { id: 'cards', l: '🔄' }, { id: 'quiz', l: '🎯' }, { id: 'exam', l: '📝' }, { id: 'history', l: '📜' }, { id: 'cases', l: '⚖️' }, { id: 'ai', l: '✨' }].map(t => <button key={t.id} onClick={() => { if (t.id === 'exam' && !examStarted) { setTab('exam'); } else if (t.id !== 'exam') { setTab(t.id); } else { setTab(t.id); } }} className={`px-2 py-1.5 rounded text-sm ${tab === t.id ? 'bg-blue-100 text-blue-700' : 'hover:bg-slate-100 text-slate-600'}`}>{t.l}</button>)}</nav></div></header>
+      <main className="max-w-3xl mx-auto px-4 py-6">{tab === 'dashboard' && <Dashboard />}{tab === 'study' && <Study />}{tab === 'cards' && <Cards />}{tab === 'quiz' && <Quiz />}{tab === 'exam' && <Exam />}{tab === 'history' && <History />}{tab === 'cases' && <Cases />}{tab === 'ai' && <AI />}</main>
       <footer className="border-t border-slate-200 bg-white/50 mt-8"><div className="max-w-3xl mx-auto px-4 py-3 text-center text-xs text-slate-500">FL DBPR • Ch 475 • 100Q • 75% pass</div></footer>
     </div>
   );
