@@ -56,10 +56,20 @@ const CASES_DATA = CASE_STUDIES?.length > 0 ? CASE_STUDIES : BACKUP_CASES;
 const SECTIONS_DATA = EXAM_SECTIONS?.length > 0 ? EXAM_SECTIONS : BACKUP_SECTIONS;
 
 const createProgress = () => {
-  const p = { sections: {}, questions: {} };
+  const p = { sections: {}, questions: {}, flashcards: {}, streaks: { current: 0, longest: 0, lastStudy: null } };
   SECTIONS_DATA.forEach(s => {
     p.sections[s.id] = { mastery: 0, correct: 0, total: 0 };
     s.practiceQuestions.forEach((q, i) => { p.questions[`${s.id}-${i}`] = { mastery: 0, attempts: 0 }; });
+    // Initialize flashcard SRS data
+    s.flashcards.forEach((fc, i) => {
+      p.flashcards[`${s.id}-${i}`] = {
+        ease: 2.5,        // Ease factor (2.5 = normal, higher = easier)
+        interval: 0,      // Days until next review (0 = new card)
+        repetitions: 0,   // Number of successful reviews
+        dueDate: null,    // When card is due (null = new)
+        lastReview: null  // Last review timestamp
+      };
+    });
   });
   return p;
 };
@@ -89,12 +99,139 @@ export default function App() {
   const [examFinished, setExamFinished] = useState(false);
   const [examResults, setExamResults] = useState(null);
   
+  // Spaced Repetition State
+  const [srsMode, setSrsMode] = useState(false);
+  const [srsDeck, setSrsDeck] = useState([]);
+  const [srsIdx, setSrsIdx] = useState(0);
+  const [srsFlipped, setSrsFlipped] = useState(false);
+  const [srsStats, setSrsStats] = useState({ reviewed: 0, correct: 0 });
+  
   const [prog, setProg] = useState(() => {
     try { const s = localStorage.getItem('fl-re-v2'); return s ? JSON.parse(s) : createProgress(); } 
     catch { return createProgress(); }
   });
   
   useEffect(() => { try { localStorage.setItem('fl-re-v2', JSON.stringify(prog)); } catch {} }, [prog]);
+
+  // SM-2 Algorithm for Spaced Repetition
+  const calculateNextReview = (card, quality) => {
+    // Quality: 0 = Again, 1 = Hard, 2 = Good, 3 = Easy
+    let { ease, interval, repetitions } = card;
+    
+    if (quality < 1) {
+      // Failed - reset
+      repetitions = 0;
+      interval = 0;
+    } else {
+      // Passed
+      if (repetitions === 0) {
+        interval = 1; // First success: 1 day
+      } else if (repetitions === 1) {
+        interval = 3; // Second success: 3 days
+      } else {
+        interval = Math.round(interval * ease);
+      }
+      repetitions += 1;
+      
+      // Adjust ease factor based on quality
+      ease = Math.max(1.3, ease + (0.1 - (3 - quality) * (0.08 + (3 - quality) * 0.02)));
+    }
+    
+    const now = new Date();
+    const dueDate = new Date(now.getTime() + interval * 24 * 60 * 60 * 1000).toISOString();
+    
+    return {
+      ease,
+      interval,
+      repetitions,
+      dueDate,
+      lastReview: now.toISOString()
+    };
+  };
+
+  // Get cards due for review
+  const getDueCards = useCallback(() => {
+    const now = new Date();
+    const allCards = [];
+    
+    SECTIONS_DATA.forEach(s => {
+      s.flashcards.forEach((fc, i) => {
+        const key = `${s.id}-${i}`;
+        const cardData = prog.flashcards?.[key] || { dueDate: null, interval: 0 };
+        
+        // Card is due if: no due date (new), or due date is past
+        const isDue = !cardData.dueDate || new Date(cardData.dueDate) <= now;
+        const isNew = !cardData.dueDate;
+        
+        allCards.push({
+          ...fc,
+          sid: s.id,
+          sectionTitle: s.title,
+          idx: i,
+          key,
+          isDue,
+          isNew,
+          interval: cardData.interval || 0,
+          ease: cardData.ease || 2.5,
+          repetitions: cardData.repetitions || 0,
+          dueDate: cardData.dueDate
+        });
+      });
+    });
+    
+    return allCards;
+  }, [prog]);
+
+  // Get today's study deck
+  const getTodaysDeck = useCallback(() => {
+    const allCards = getDueCards();
+    const dueCards = allCards.filter(c => c.isDue);
+    
+    // Prioritize: overdue cards first, then new cards, limit to 20-30 per session
+    const overdue = dueCards.filter(c => !c.isNew).sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate));
+    const newCards = dueCards.filter(c => c.isNew);
+    
+    // Mix: up to 20 due + up to 10 new
+    return [...overdue.slice(0, 20), ...newCards.slice(0, 10)].sort(() => Math.random() - 0.5);
+  }, [getDueCards]);
+
+  // Record SRS response
+  const recordSrsResponse = (cardKey, quality) => {
+    setProg(p => {
+      const currentCard = p.flashcards?.[cardKey] || { ease: 2.5, interval: 0, repetitions: 0 };
+      const updated = calculateNextReview(currentCard, quality);
+      
+      return {
+        ...p,
+        flashcards: {
+          ...p.flashcards,
+          [cardKey]: updated
+        }
+      };
+    });
+  };
+
+  // Start SRS session
+  const startSrsSession = () => {
+    const deck = getTodaysDeck();
+    setSrsDeck(deck);
+    setSrsIdx(0);
+    setSrsFlipped(false);
+    setSrsStats({ reviewed: 0, correct: 0 });
+    setSrsMode(true);
+    setTab('srs');
+  };
+
+  // Get SRS statistics
+  const getSrsStats = useCallback(() => {
+    const allCards = getDueCards();
+    const dueNow = allCards.filter(c => c.isDue).length;
+    const newCards = allCards.filter(c => c.isNew).length;
+    const learning = allCards.filter(c => !c.isNew && c.interval < 7).length;
+    const mature = allCards.filter(c => c.interval >= 7).length;
+    
+    return { total: allCards.length, dueNow, newCards, learning, mature };
+  }, [getDueCards]);
 
   // Exam Timer
   useEffect(() => {
@@ -239,16 +376,61 @@ export default function App() {
           {weak().slice(0, 3).map(a => <div key={a.id} className="flex justify-between text-amber-700"><button onClick={() => { setSection(a.id); setTab('study'); }} className="hover:underline">{a.title}</button><span>{a.m}%</span></div>)}
         </div>
       )}
+      
+      {/* SRS Stats Card */}
+      {(() => {
+        const srsStatsData = getSrsStats();
+        return srsStatsData.dueNow > 0 || srsStatsData.newCards > 0 ? (
+          <div className="bg-gradient-to-r from-indigo-500 to-purple-600 rounded-xl p-5 text-white">
+            <div className="flex justify-between items-center">
+              <div>
+                <h3 className="font-bold text-lg">🧠 Spaced Repetition</h3>
+                <p className="text-sm opacity-80">{srsStatsData.dueNow} cards due • {srsStatsData.newCards} new</p>
+              </div>
+              <button onClick={startSrsSession} className="px-4 py-2 bg-white text-indigo-600 rounded-lg font-semibold text-sm hover:bg-indigo-50 transition-colors">
+                Study Now
+              </button>
+            </div>
+            <div className="mt-3 flex gap-2">
+              <div className="flex-1 bg-white/20 rounded-lg p-2 text-center">
+                <div className="text-lg font-bold">{srsStatsData.learning}</div>
+                <div className="text-xs opacity-80">Learning</div>
+              </div>
+              <div className="flex-1 bg-white/20 rounded-lg p-2 text-center">
+                <div className="text-lg font-bold">{srsStatsData.mature}</div>
+                <div className="text-xs opacity-80">Mastered</div>
+              </div>
+              <div className="flex-1 bg-white/20 rounded-lg p-2 text-center">
+                <div className="text-lg font-bold">{srsStatsData.total > 0 ? Math.round((srsStatsData.mature / srsStatsData.total) * 100) : 0}%</div>
+                <div className="text-xs opacity-80">Complete</div>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 flex items-center gap-3">
+            <span className="text-2xl">✅</span>
+            <div>
+              <h3 className="font-bold text-emerald-800">All caught up!</h3>
+              <p className="text-sm text-emerald-600">{srsStatsData.mature} cards mastered • Check back later for reviews</p>
+            </div>
+          </div>
+        );
+      })()}
+      
       <div className="bg-white rounded-xl p-6 shadow-lg">
         <h2 className="font-bold text-slate-800 mb-4">Study Actions</h2>
         <div className="grid grid-cols-2 gap-3 mb-3">
+          <button onClick={startSrsSession} className="p-3 bg-gradient-to-r from-indigo-500 to-purple-500 text-white rounded-xl text-sm font-medium">🧠 Spaced Rep</button>
           <button onClick={() => { setQuiz(genQuiz()); setQIdx(0); setScore({ c: 0, t: 0 }); setAnswer(null); setShowExp(false); setTab('quiz'); }} className="p-3 bg-gradient-to-r from-red-500 to-rose-500 text-white rounded-xl text-sm font-medium">🎯 Adaptive Quiz</button>
-          <button onClick={startExam} className="p-3 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-xl text-sm font-medium">📝 Practice Exam</button>
+        </div>
+        <div className="grid grid-cols-2 gap-3 mb-3">
+          <button onClick={startExam} className="p-3 bg-gradient-to-r from-slate-700 to-slate-800 text-white rounded-xl text-sm font-medium">📝 Practice Exam</button>
+          <button onClick={() => setTab('cards')} className="p-3 bg-gradient-to-r from-blue-500 to-cyan-500 text-white rounded-xl text-sm font-medium">🔄 Flashcards</button>
         </div>
         <div className="grid grid-cols-3 gap-3">
           <button onClick={() => setTab('history')} className="p-3 bg-gradient-to-r from-purple-500 to-violet-500 text-white rounded-xl text-sm font-medium">📜 History</button>
           <button onClick={() => setTab('cases')} className="p-3 bg-gradient-to-r from-emerald-500 to-teal-500 text-white rounded-xl text-sm font-medium">⚖️ Cases</button>
-          <button onClick={() => setTab('cards')} className="p-3 bg-gradient-to-r from-blue-500 to-cyan-500 text-white rounded-xl text-sm font-medium">🔄 Flashcards</button>
+          <button onClick={() => setTab('ai')} className="p-3 bg-gradient-to-r from-pink-500 to-rose-500 text-white rounded-xl text-sm font-medium">✨ AI Help</button>
         </div>
       </div>
       <div className="bg-white rounded-xl p-6 shadow-lg">
@@ -420,6 +602,254 @@ export default function App() {
     if (qIdx >= quiz.length) { const p = Math.round((score.c / score.t) * 100); return <div className={`max-w-md mx-auto rounded-xl p-6 text-white text-center ${p >= 75 ? 'bg-gradient-to-br from-emerald-500 to-green-600' : 'bg-gradient-to-br from-amber-500 to-orange-600'}`}><div className="text-4xl mb-2">{p >= 75 ? '🏆' : '📚'}</div><h2 className="text-2xl font-bold mb-1">{p >= 75 ? 'Great!' : 'Keep Going!'}</h2><p className="text-lg">{score.c}/{score.t} ({p}%)</p><div className="flex gap-3 mt-4 justify-center"><button onClick={() => setQuiz([])} className="px-4 py-2 bg-white/20 rounded-lg text-sm">Back</button><button onClick={() => { setQuiz(genQuiz()); setQIdx(0); setScore({ c: 0, t: 0 }); setAnswer(null); setShowExp(false); }} className="px-4 py-2 bg-white text-slate-800 rounded-lg text-sm font-medium">New Quiz</button></div></div>; }
     const q = quiz[qIdx];
     return <div className="max-w-md mx-auto space-y-4"><div className="flex justify-between text-slate-600 text-xs"><span>Q{qIdx + 1}/{quiz.length}</span><span>✓{score.c}</span></div><div className="w-full bg-slate-200 rounded-full h-1.5"><div className="bg-emerald-500 h-1.5 rounded-full" style={{ width: `${((qIdx + 1) / quiz.length) * 100}%` }} /></div><div className="bg-white rounded-xl p-5 shadow"><span className="inline-block px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-xs mb-3">{q.st}</span><h3 className="font-semibold text-slate-800 mb-4">{q.question}</h3><div className="space-y-2">{q.options.map((o, i) => <button key={i} onClick={() => !showExp && setAnswer(i)} disabled={showExp} className={`w-full p-3 text-left rounded-lg border-2 text-sm ${showExp ? (i === q.correct ? 'border-emerald-500 bg-emerald-50' : i === answer ? 'border-red-500 bg-red-50' : 'border-slate-200 bg-slate-50') : (answer === i ? 'border-blue-500 bg-blue-50' : 'border-slate-200 hover:border-slate-300')}`}><span className="inline-flex w-6 h-6 rounded bg-white border font-semibold mr-2 items-center justify-center text-xs">{String.fromCharCode(65 + i)}</span>{o}</button>)}</div>{showExp && <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg"><div className="font-semibold text-blue-800 text-xs mb-1">💡</div><p className="text-blue-700 text-sm">{q.explanation}</p></div>}</div><button onClick={() => { if (!showExp && answer !== null) { setShowExp(true); setScore(s => ({ c: s.c + (answer === q.correct ? 1 : 0), t: s.t + 1 })); record(q.sid, q.qi, answer === q.correct); } else if (showExp) { setQIdx(i => i + 1); setAnswer(null); setShowExp(false); } }} disabled={answer === null && !showExp} className={`w-full py-2.5 rounded-xl font-medium text-sm ${answer !== null || showExp ? (showExp ? 'bg-emerald-500 text-white' : 'bg-blue-500 text-white') : 'bg-slate-100 text-slate-400'}`}>{showExp ? (qIdx < quiz.length - 1 ? 'Next →' : 'Results') : 'Check'}</button></div>;
+  };
+
+  // SPACED REPETITION COMPONENT
+  const SRS = () => {
+    const stats = getSrsStats();
+    
+    // Session complete or no cards
+    if (srsMode && srsDeck.length > 0 && srsIdx >= srsDeck.length) {
+      const pct = srsStats.reviewed > 0 ? Math.round((srsStats.correct / srsStats.reviewed) * 100) : 0;
+      return (
+        <div className="max-w-md mx-auto">
+          <div className={`rounded-2xl p-8 text-white text-center mb-6 ${pct >= 70 ? 'bg-gradient-to-br from-emerald-500 to-green-600' : 'bg-gradient-to-br from-amber-500 to-orange-600'}`}>
+            <div className="text-5xl mb-4">🧠</div>
+            <h1 className="text-2xl font-bold mb-2">Session Complete!</h1>
+            <p className="text-4xl font-bold my-4">{srsStats.reviewed} cards</p>
+            <p className="opacity-80">{srsStats.correct} remembered ({pct}%)</p>
+          </div>
+          
+          <div className="bg-white rounded-xl p-6 shadow-lg mb-4">
+            <h3 className="font-bold text-slate-800 mb-3">📊 Your Progress</h3>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="bg-blue-50 rounded-lg p-3 text-center">
+                <div className="text-xl font-bold text-blue-600">{stats.mature}</div>
+                <div className="text-xs text-blue-700">Mastered</div>
+              </div>
+              <div className="bg-amber-50 rounded-lg p-3 text-center">
+                <div className="text-xl font-bold text-amber-600">{stats.learning}</div>
+                <div className="text-xs text-amber-700">Learning</div>
+              </div>
+              <div className="bg-purple-50 rounded-lg p-3 text-center">
+                <div className="text-xl font-bold text-purple-600">{stats.newCards}</div>
+                <div className="text-xs text-purple-700">New</div>
+              </div>
+              <div className="bg-emerald-50 rounded-lg p-3 text-center">
+                <div className="text-xl font-bold text-emerald-600">{stats.dueNow}</div>
+                <div className="text-xs text-emerald-700">Due Now</div>
+              </div>
+            </div>
+          </div>
+          
+          <div className="flex gap-3">
+            <button onClick={() => { setSrsMode(false); setTab('dashboard'); }} className="flex-1 py-3 bg-slate-100 text-slate-700 rounded-xl font-medium">
+              Done
+            </button>
+            {stats.dueNow > 0 && (
+              <button onClick={startSrsSession} className="flex-1 py-3 bg-indigo-600 text-white rounded-xl font-medium">
+                Continue ({stats.dueNow} due)
+              </button>
+            )}
+          </div>
+        </div>
+      );
+    }
+    
+    // Start screen
+    if (!srsMode || srsDeck.length === 0) {
+      return (
+        <div className="max-w-md mx-auto">
+          <div className="bg-gradient-to-br from-indigo-600 to-purple-700 rounded-2xl p-8 text-white text-center mb-6">
+            <div className="text-5xl mb-4">🧠</div>
+            <h1 className="text-2xl font-bold mb-2">Spaced Repetition</h1>
+            <p className="opacity-80 text-sm">Smart flashcards that adapt to your memory</p>
+          </div>
+          
+          <div className="bg-white rounded-xl p-6 shadow-lg mb-6">
+            <h3 className="font-bold text-slate-800 mb-4">How It Works</h3>
+            <div className="space-y-3 text-sm text-slate-600">
+              <div className="flex gap-3">
+                <span className="text-lg">🟢</span>
+                <p><strong>Easy cards</strong> appear less often (days/weeks apart)</p>
+              </div>
+              <div className="flex gap-3">
+                <span className="text-lg">🟡</span>
+                <p><strong>Medium cards</strong> appear at moderate intervals</p>
+              </div>
+              <div className="flex gap-3">
+                <span className="text-lg">🔴</span>
+                <p><strong>Hard cards</strong> appear more frequently until mastered</p>
+              </div>
+            </div>
+          </div>
+          
+          <div className="bg-white rounded-xl p-6 shadow-lg mb-6">
+            <h3 className="font-bold text-slate-800 mb-4">📊 Your Cards</h3>
+            <div className="grid grid-cols-2 gap-3 mb-4">
+              <div className="bg-red-50 rounded-lg p-4 text-center">
+                <div className="text-3xl font-bold text-red-600">{stats.dueNow}</div>
+                <div className="text-xs text-red-700">Due Today</div>
+              </div>
+              <div className="bg-purple-50 rounded-lg p-4 text-center">
+                <div className="text-3xl font-bold text-purple-600">{stats.newCards}</div>
+                <div className="text-xs text-purple-700">New Cards</div>
+              </div>
+              <div className="bg-amber-50 rounded-lg p-4 text-center">
+                <div className="text-3xl font-bold text-amber-600">{stats.learning}</div>
+                <div className="text-xs text-amber-700">Learning</div>
+              </div>
+              <div className="bg-emerald-50 rounded-lg p-4 text-center">
+                <div className="text-3xl font-bold text-emerald-600">{stats.mature}</div>
+                <div className="text-xs text-emerald-700">Mastered</div>
+              </div>
+            </div>
+            
+            <div className="w-full bg-slate-200 rounded-full h-3 mb-2">
+              <div 
+                className="bg-gradient-to-r from-emerald-500 to-green-500 h-3 rounded-full transition-all" 
+                style={{ width: `${stats.total > 0 ? (stats.mature / stats.total) * 100 : 0}%` }} 
+              />
+            </div>
+            <p className="text-xs text-slate-500 text-center">{stats.total > 0 ? Math.round((stats.mature / stats.total) * 100) : 0}% of cards mastered</p>
+          </div>
+          
+          <button 
+            onClick={startSrsSession}
+            disabled={stats.dueNow === 0 && stats.newCards === 0}
+            className={`w-full py-4 rounded-xl font-bold text-lg transition-all ${
+              stats.dueNow > 0 || stats.newCards > 0
+                ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white hover:from-indigo-700 hover:to-purple-700'
+                : 'bg-slate-100 text-slate-400 cursor-not-allowed'
+            }`}
+          >
+            {stats.dueNow > 0 ? `🚀 Study ${Math.min(30, stats.dueNow + Math.min(10, stats.newCards))} Cards` : stats.newCards > 0 ? `🆕 Start with ${Math.min(10, stats.newCards)} New Cards` : '✅ All caught up! Come back later'}
+          </button>
+        </div>
+      );
+    }
+    
+    // Active review
+    const card = srsDeck[srsIdx];
+    
+    const handleResponse = (quality) => {
+      recordSrsResponse(card.key, quality);
+      setSrsStats(s => ({
+        reviewed: s.reviewed + 1,
+        correct: s.correct + (quality >= 2 ? 1 : 0)
+      }));
+      setSrsFlipped(false);
+      setSrsIdx(i => i + 1);
+    };
+    
+    return (
+      <div className="max-w-md mx-auto">
+        {/* Progress header */}
+        <div className="flex justify-between items-center mb-4 text-sm">
+          <span className="text-slate-600">Card {srsIdx + 1} of {srsDeck.length}</span>
+          <span className="text-emerald-600 font-medium">✓ {srsStats.correct}</span>
+        </div>
+        <div className="w-full bg-slate-200 rounded-full h-1.5 mb-4">
+          <div className="bg-indigo-500 h-1.5 rounded-full transition-all" style={{ width: `${((srsIdx + 1) / srsDeck.length) * 100}%` }} />
+        </div>
+        
+        {/* Section badge */}
+        <div className="text-center mb-2">
+          <span className="text-xs px-3 py-1 bg-slate-100 text-slate-600 rounded-full">{card.sectionTitle}</span>
+          {card.isNew && <span className="ml-2 text-xs px-2 py-1 bg-purple-100 text-purple-700 rounded-full">NEW</span>}
+        </div>
+        
+        {/* Flashcard */}
+        <div 
+          onClick={() => !srsFlipped && setSrsFlipped(true)} 
+          className={`cursor-pointer mb-4 ${!srsFlipped ? 'hover:scale-[1.02] transition-transform' : ''}`}
+          style={{ perspective: '1000px' }}
+        >
+          <div 
+            className="relative w-full transition-transform duration-500" 
+            style={{ 
+              transformStyle: 'preserve-3d', 
+              transform: srsFlipped ? 'rotateY(180deg)' : 'rotateY(0deg)',
+              minHeight: '250px'
+            }}
+          >
+            {/* Front */}
+            <div 
+              className="absolute inset-0 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-2xl p-6 flex flex-col items-center justify-center text-white shadow-xl"
+              style={{ backfaceVisibility: 'hidden' }}
+            >
+              <div className="text-xs opacity-60 mb-4">QUESTION</div>
+              <p className="text-center text-lg font-medium">{card.front}</p>
+              {!srsFlipped && <div className="absolute bottom-4 text-xs opacity-60">Tap to reveal answer</div>}
+            </div>
+            
+            {/* Back */}
+            <div 
+              className="absolute inset-0 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-2xl p-6 flex flex-col items-center justify-center text-white shadow-xl"
+              style={{ backfaceVisibility: 'hidden', transform: 'rotateY(180deg)' }}
+            >
+              <div className="text-xs opacity-60 mb-4">ANSWER</div>
+              <div className="text-center text-sm whitespace-pre-line overflow-auto max-h-40">{card.back}</div>
+            </div>
+          </div>
+        </div>
+        
+        {/* Response buttons */}
+        {srsFlipped && (
+          <div className="space-y-3">
+            <p className="text-center text-sm text-slate-600 mb-2">How well did you know this?</p>
+            <div className="grid grid-cols-4 gap-2">
+              <button 
+                onClick={() => handleResponse(0)} 
+                className="py-3 bg-red-500 text-white rounded-xl font-medium text-sm hover:bg-red-600 transition-colors"
+              >
+                Again
+                <div className="text-xs opacity-70">&lt;1m</div>
+              </button>
+              <button 
+                onClick={() => handleResponse(1)} 
+                className="py-3 bg-orange-500 text-white rounded-xl font-medium text-sm hover:bg-orange-600 transition-colors"
+              >
+                Hard
+                <div className="text-xs opacity-70">1d</div>
+              </button>
+              <button 
+                onClick={() => handleResponse(2)} 
+                className="py-3 bg-emerald-500 text-white rounded-xl font-medium text-sm hover:bg-emerald-600 transition-colors"
+              >
+                Good
+                <div className="text-xs opacity-70">{card.interval < 1 ? '3d' : `${Math.round(card.interval * card.ease)}d`}</div>
+              </button>
+              <button 
+                onClick={() => handleResponse(3)} 
+                className="py-3 bg-blue-500 text-white rounded-xl font-medium text-sm hover:bg-blue-600 transition-colors"
+              >
+                Easy
+                <div className="text-xs opacity-70">{card.interval < 1 ? '4d' : `${Math.round(card.interval * card.ease * 1.3)}d`}</div>
+              </button>
+            </div>
+          </div>
+        )}
+        
+        {/* Skip/Exit */}
+        <div className="mt-4 flex justify-between">
+          <button 
+            onClick={() => { setSrsMode(false); setTab('dashboard'); }}
+            className="text-sm text-slate-500 hover:text-slate-700"
+          >
+            Exit Session
+          </button>
+          {!srsFlipped && (
+            <button 
+              onClick={() => { setSrsIdx(i => i + 1); }}
+              className="text-sm text-slate-500 hover:text-slate-700"
+            >
+              Skip →
+            </button>
+          )}
+        </div>
+      </div>
+    );
   };
 
   const AI = () => (
@@ -660,8 +1090,8 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
-      <header className="sticky top-0 z-50 bg-white/80 backdrop-blur border-b border-slate-200"><div className="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between"><div className="flex items-center gap-2"><div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-lg flex items-center justify-center text-white font-bold text-sm">FL</div><div><h1 className="text-sm font-bold text-slate-800">FL RE Exam</h1><p className="text-xs text-slate-500">v2.2 Adaptive</p></div></div><nav className="flex gap-1">{[{ id: 'dashboard', l: '📊' }, { id: 'study', l: '📖' }, { id: 'cards', l: '🔄' }, { id: 'quiz', l: '🎯' }, { id: 'exam', l: '📝' }, { id: 'history', l: '📜' }, { id: 'cases', l: '⚖️' }, { id: 'ai', l: '✨' }].map(t => <button key={t.id} onClick={() => { if (t.id === 'exam' && !examStarted) { setTab('exam'); } else if (t.id !== 'exam') { setTab(t.id); } else { setTab(t.id); } }} className={`px-2 py-1.5 rounded text-sm ${tab === t.id ? 'bg-blue-100 text-blue-700' : 'hover:bg-slate-100 text-slate-600'}`}>{t.l}</button>)}</nav></div></header>
-      <main className="max-w-3xl mx-auto px-4 py-6">{tab === 'dashboard' && <Dashboard />}{tab === 'study' && <Study />}{tab === 'cards' && <Cards />}{tab === 'quiz' && <Quiz />}{tab === 'exam' && <Exam />}{tab === 'history' && <History />}{tab === 'cases' && <Cases />}{tab === 'ai' && <AI />}</main>
+      <header className="sticky top-0 z-50 bg-white/80 backdrop-blur border-b border-slate-200"><div className="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between"><div className="flex items-center gap-2"><div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-lg flex items-center justify-center text-white font-bold text-sm">FL</div><div><h1 className="text-sm font-bold text-slate-800">FL RE Exam</h1><p className="text-xs text-slate-500">v2.5 SRS</p></div></div><nav className="flex gap-1">{[{ id: 'dashboard', l: '📊' }, { id: 'srs', l: '🧠' }, { id: 'study', l: '📖' }, { id: 'quiz', l: '🎯' }, { id: 'exam', l: '📝' }, { id: 'cases', l: '⚖️' }, { id: 'ai', l: '✨' }].map(t => <button key={t.id} onClick={() => setTab(t.id)} className={`px-2 py-1.5 rounded text-sm ${tab === t.id ? 'bg-blue-100 text-blue-700' : 'hover:bg-slate-100 text-slate-600'}`}>{t.l}</button>)}</nav></div></header>
+      <main className="max-w-3xl mx-auto px-4 py-6">{tab === 'dashboard' && <Dashboard />}{tab === 'srs' && <SRS />}{tab === 'study' && <Study />}{tab === 'cards' && <Cards />}{tab === 'quiz' && <Quiz />}{tab === 'exam' && <Exam />}{tab === 'history' && <History />}{tab === 'cases' && <Cases />}{tab === 'ai' && <AI />}</main>
       <footer className="border-t border-slate-200 bg-white/50 mt-8"><div className="max-w-3xl mx-auto px-4 py-3 text-center text-xs text-slate-500">FL DBPR • Ch 475 • 100Q • 75% pass</div></footer>
     </div>
   );
