@@ -276,17 +276,131 @@ export default function App() {
     </div>
   );
 
-  const Cases = () => (
-    <div className="space-y-4">
-      <div className="bg-gradient-to-r from-emerald-600 to-teal-600 rounded-xl p-5 text-white"><h2 className="text-xl font-bold">⚖️ Case Studies</h2><p className="opacity-80 text-sm">Apply knowledge to real scenarios.</p></div>
-      {CASES_DATA.map(c => (
-        <div key={c.id} className="bg-white rounded-xl p-4 shadow">
-          <div className="cursor-pointer" onClick={() => { setCaseSel(caseSel === c.id ? null : c.id); setCaseAns(false); }}><span className={`text-xs px-2 py-0.5 rounded ${c.category === 'fair-housing' ? 'bg-blue-100 text-blue-700' : c.category === 'brokerage' ? 'bg-purple-100 text-purple-700' : 'bg-green-100 text-green-700'}`}>{c.category}</span><h3 className="font-bold text-slate-800 mt-1">{c.title}</h3></div>
-          {caseSel === c.id && <div className="mt-3 space-y-3"><div className="bg-slate-50 rounded p-3"><div className="font-medium text-slate-700 text-xs mb-1">Scenario:</div><p className="text-slate-600 text-sm">{c.scenario}</p></div><div className="bg-amber-50 rounded p-3"><div className="font-medium text-amber-800 text-xs mb-1">Question:</div><p className="text-amber-900 text-sm">{c.question}</p></div>{!caseAns ? <button onClick={() => setCaseAns(true)} className="w-full py-2 bg-emerald-500 text-white rounded-lg text-sm font-medium">Reveal Answer</button> : <div className="space-y-2"><div className="bg-emerald-50 border border-emerald-200 rounded p-3"><div className="font-semibold text-emerald-800 text-xs mb-1">Answer:</div><p className="text-emerald-900 text-sm">{c.answer}</p></div><div className="bg-blue-50 border border-blue-200 rounded p-3"><div className="font-semibold text-blue-800 text-xs mb-1">Exam Relevance:</div><p className="text-blue-700 text-sm">{c.examRelevance}</p></div></div>}</div>}
+  const [caseFilter, setCaseFilter] = useState('all');
+  const [caseDifficulty, setCaseDifficulty] = useState('all');
+  
+  const Cases = () => {
+    const categories = ['all', ...new Set(CASES_DATA.map(c => c.category))];
+    const difficulties = ['all', 'easy', 'medium', 'hard'];
+    
+    const filteredCases = CASES_DATA.filter(c => {
+      if (caseFilter !== 'all' && c.category !== caseFilter) return false;
+      if (caseDifficulty !== 'all' && c.difficulty !== caseDifficulty) return false;
+      return true;
+    });
+
+    const getCategoryStyle = (cat) => {
+      const styles = {
+        'fair-housing': 'bg-blue-100 text-blue-700',
+        'brokerage': 'bg-purple-100 text-purple-700',
+        'environmental': 'bg-green-100 text-green-700',
+        'agency': 'bg-amber-100 text-amber-700',
+        'contracts': 'bg-pink-100 text-pink-700',
+        'mortgages': 'bg-cyan-100 text-cyan-700',
+        'appraisal': 'bg-indigo-100 text-indigo-700',
+        'property-rights': 'bg-emerald-100 text-emerald-700',
+        'taxes': 'bg-orange-100 text-orange-700',
+        'zoning': 'bg-slate-100 text-slate-700'
+      };
+      return styles[cat] || 'bg-gray-100 text-gray-700';
+    };
+
+    const getDifficultyStyle = (diff) => {
+      const styles = {
+        'easy': 'bg-green-500',
+        'medium': 'bg-yellow-500',
+        'hard': 'bg-red-500'
+      };
+      return styles[diff] || 'bg-gray-500';
+    };
+
+    return (
+      <div className="space-y-4">
+        <div className="bg-gradient-to-r from-emerald-600 to-teal-600 rounded-xl p-5 text-white">
+          <h2 className="text-xl font-bold">⚖️ Case Studies</h2>
+          <p className="opacity-80 text-sm">Apply knowledge to real scenarios • {CASES_DATA.length} cases</p>
         </div>
-      ))}
-    </div>
-  );
+        
+        {/* Filters */}
+        <div className="bg-white rounded-xl p-4 shadow">
+          <div className="flex flex-wrap gap-2 mb-3">
+            <span className="text-xs text-slate-500 w-full">Category:</span>
+            {categories.map(cat => (
+              <button 
+                key={cat} 
+                onClick={() => setCaseFilter(cat)}
+                className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${caseFilter === cat ? 'bg-emerald-500 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+              >
+                {cat === 'all' ? 'All Categories' : cat.replace('-', ' ')}
+              </button>
+            ))}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <span className="text-xs text-slate-500 w-full">Difficulty:</span>
+            {difficulties.map(diff => (
+              <button 
+                key={diff} 
+                onClick={() => setCaseDifficulty(diff)}
+                className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${caseDifficulty === diff ? 'bg-emerald-500 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+              >
+                {diff === 'all' ? 'All Levels' : diff.charAt(0).toUpperCase() + diff.slice(1)}
+              </button>
+            ))}
+          </div>
+          <div className="mt-3 text-xs text-slate-500">Showing {filteredCases.length} of {CASES_DATA.length} cases</div>
+        </div>
+
+        {filteredCases.map(c => (
+          <div key={c.id} className="bg-white rounded-xl p-4 shadow">
+            <div className="cursor-pointer" onClick={() => { setCaseSel(caseSel === c.id ? null : c.id); setCaseAns(false); }}>
+              <div className="flex items-center gap-2 mb-1">
+                <span className={`text-xs px-2 py-0.5 rounded ${getCategoryStyle(c.category)}`}>{c.category.replace('-', ' ')}</span>
+                {c.difficulty && <span className={`w-2 h-2 rounded-full ${getDifficultyStyle(c.difficulty)}`} title={c.difficulty}></span>}
+                <span className="text-xs text-slate-400">{c.difficulty}</span>
+              </div>
+              <h3 className="font-bold text-slate-800">{c.title}</h3>
+            </div>
+            {caseSel === c.id && (
+              <div className="mt-3 space-y-3">
+                <div className="bg-slate-50 rounded p-3">
+                  <div className="font-medium text-slate-700 text-xs mb-1">📋 Scenario:</div>
+                  <p className="text-slate-600 text-sm">{c.scenario}</p>
+                </div>
+                <div className="bg-amber-50 rounded p-3">
+                  <div className="font-medium text-amber-800 text-xs mb-1">❓ Question:</div>
+                  <p className="text-amber-900 text-sm font-medium">{c.question}</p>
+                </div>
+                {!caseAns ? (
+                  <button onClick={() => setCaseAns(true)} className="w-full py-2 bg-emerald-500 text-white rounded-lg text-sm font-medium hover:bg-emerald-600 transition-colors">
+                    🔍 Reveal Answer
+                  </button>
+                ) : (
+                  <div className="space-y-2">
+                    <div className="bg-emerald-50 border border-emerald-200 rounded p-3">
+                      <div className="font-semibold text-emerald-800 text-xs mb-1">✅ Answer:</div>
+                      <div className="text-emerald-900 text-sm whitespace-pre-line">{c.answer}</div>
+                    </div>
+                    <div className="bg-blue-50 border border-blue-200 rounded p-3">
+                      <div className="font-semibold text-blue-800 text-xs mb-1">📝 Exam Relevance:</div>
+                      <p className="text-blue-700 text-sm">{c.examRelevance}</p>
+                    </div>
+                    {c.keyPoints && (
+                      <div className="bg-purple-50 border border-purple-200 rounded p-3">
+                        <div className="font-semibold text-purple-800 text-xs mb-1">🎯 Key Points:</div>
+                        <ul className="text-purple-700 text-sm list-disc list-inside">
+                          {c.keyPoints.map((point, i) => <li key={i}>{point}</li>)}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    );
+  };
 
   const Study = () => {
     const s = SECTIONS_DATA.find(x => x.id === section);
