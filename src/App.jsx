@@ -60,7 +60,7 @@ const staggerChildren = { animate: { transition: { staggerChildren: 0.05 } } };
 export default function App() {
   const [tab, setTab] = useState('dashboard');
   const [prog, setProg] = useState(() => {
-    const saved = localStorage.getItem('fl-re-v2');
+    const saved = localStorage.getItem('fl-re-v3');
     return saved ? JSON.parse(saved) : createProgress();
   });
   
@@ -94,7 +94,7 @@ export default function App() {
   
   const examTimerRef = useRef(null);
 
-  useEffect(() => { localStorage.setItem('fl-re-v2', JSON.stringify(prog)); }, [prog]);
+  useEffect(() => { localStorage.setItem('fl-re-v3', JSON.stringify(prog)); }, [prog]);
 
   useEffect(() => {
     if (examTimerActive && examTime > 0 && !examSubmitted) {
@@ -260,10 +260,60 @@ export default function App() {
     return all.filter(q => { sc[q.sid] = (sc[q.sid] || 0) + 1; return sc[q.sid] <= Math.ceil(n / 5); }).slice(0, n).sort(() => Math.random() - 0.5);
   }, [weak, prog.questions]);
 
-  const startExam = useCallback(() => {
-    const all = SECTIONS_DATA.flatMap(s => (s.practiceQuestions || []).map((q, i) => ({ ...q, sid: s.id, st: s.title, qi: i })));
-    const shuffled = all.sort(() => Math.random() - 0.5).slice(0, 100);
-    setExamQuestions(shuffled); setExamAnswers({}); setExamTime(210 * 60); setExamSubmitted(false); setExamMode(true); setExamTimerActive(true); setQIdx(0);
+const startExam = useCallback(() => {
+    // Build weighted question pool based on DBPR percentages
+    const weightedQuestions = [];
+    
+    SECTIONS_DATA.forEach(section => {
+      const questions = (section.practiceQuestions || []).map((q, i) => ({ 
+        ...q, 
+        sid: section.id, 
+        st: section.title, 
+        qi: i 
+      }));
+      
+      // Calculate how many questions this section should contribute
+      // Based on its percentage (e.g., 12% = 12 questions out of 100)
+      const targetCount = Math.round(section.percentage);
+      
+      // Shuffle section questions and take up to targetCount
+      const shuffled = questions.sort(() => Math.random() - 0.5);
+      const selected = shuffled.slice(0, Math.min(targetCount, shuffled.length));
+      
+      // If we don't have enough questions, repeat some (with flag)
+      while (selected.length < targetCount && questions.length > 0) {
+        const additional = questions[Math.floor(Math.random() * questions.length)];
+        selected.push({ ...additional, repeated: true });
+      }
+      
+      weightedQuestions.push(...selected);
+    });
+    
+    // Shuffle final exam and ensure exactly 100 questions
+    const finalExam = weightedQuestions.sort(() => Math.random() - 0.5).slice(0, 100);
+    
+    // If we have less than 100, fill with random questions from high-weight sections
+    while (finalExam.length < 100) {
+      const highWeightSections = SECTIONS_DATA.filter(s => s.percentage >= 6);
+      const randomSection = highWeightSections[Math.floor(Math.random() * highWeightSections.length)];
+      const sectionQs = (randomSection.practiceQuestions || []).map((q, i) => ({ 
+        ...q, 
+        sid: randomSection.id, 
+        st: randomSection.title, 
+        qi: i 
+      }));
+      if (sectionQs.length > 0) {
+        finalExam.push(sectionQs[Math.floor(Math.random() * sectionQs.length)]);
+      }
+    }
+    
+    setExamQuestions(finalExam);
+    setExamAnswers({});
+    setExamTime(210 * 60);
+    setExamSubmitted(false);
+    setExamMode(true);
+    setExamTimerActive(true);
+    setQIdx(0);
   }, []);
 
   const submitExam = useCallback(() => {
