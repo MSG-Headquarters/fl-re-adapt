@@ -168,8 +168,9 @@ export default function App() {
     });
   }, [prog, overall, addXP]);
 
-  useEffect(() => { checkAchievements(); }, [prog.stats?.quizzesTaken, prog.stats?.cardsReviewed, prog.streaks?.current]);
-
+ useEffect(() => { 
+  if (prog.stats) checkAchievements(); 
+}, [prog.stats, prog.streaks?.current, checkAchievements]);
   const getEarnedAchievements = useCallback(() => {
     const earned = prog.stats?.achievements || [];
     return ACHIEVEMENTS.filter(a => earned.includes(a.id));
