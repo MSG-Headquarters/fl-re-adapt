@@ -142,7 +142,20 @@ export default function App() {
   }, []);
 
   const checkAchievements = useCallback(() => {
-    const stats = { ...prog.stats, overallMastery: overall() };
+    if (!prog.stats) return; // Safety check
+    const stats = { 
+      quizzesTaken: 0,
+      perfectQuizzes: 0,
+      cardsReviewed: 0,
+      examsPassed: 0,
+      examHighScore: 0,
+      questionsAnswered: 0,
+      correctAnswers: 0,
+      level: 1,
+      achievements: [],
+      ...prog.stats, 
+      overallMastery: overall() 
+    };
     const streaks = prog.streaks || { current: 0, longest: 0 };
     const earned = stats.achievements || [];
     ACHIEVEMENTS.forEach(ach => {
