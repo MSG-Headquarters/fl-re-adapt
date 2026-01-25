@@ -168,17 +168,17 @@ export default function App() {
     });
   }, [prog, overall, addXP]);
 
-  useEffect(() => { checkAchievements(); }, [prog.stats.quizzesTaken, prog.stats.cardsReviewed, prog.streaks?.current]);
+  useEffect(() => { checkAchievements(); }, [prog.stats?.quizzesTaken, prog.stats?.cardsReviewed, prog.streaks?.current]);
 
   const getEarnedAchievements = useCallback(() => {
-    const earned = prog.stats.achievements || [];
+    const earned = prog.stats?.achievements || [];
     return ACHIEVEMENTS.filter(a => earned.includes(a.id));
-  }, [prog.stats.achievements]);
+  }, [prog.stats?.achievements]);
 
   const getNextAchievements = useCallback(() => {
-    const earned = prog.stats.achievements || [];
+    const earned = prog.stats?.achievements || [];
     return ACHIEVEMENTS.filter(a => !earned.includes(a.id)).slice(0, 3);
-  }, [prog.stats.achievements]);
+  }, [prog.stats?.achievements]);
 
   const getSrsStats = useCallback(() => {
     const now = new Date();
