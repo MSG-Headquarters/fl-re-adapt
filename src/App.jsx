@@ -56,22 +56,83 @@ const CASES_DATA = CASE_STUDIES?.length > 0 ? CASE_STUDIES : BACKUP_CASES;
 const SECTIONS_DATA = EXAM_SECTIONS?.length > 0 ? EXAM_SECTIONS : BACKUP_SECTIONS;
 
 const createProgress = () => {
-  const p = { sections: {}, questions: {}, flashcards: {}, streaks: { current: 0, longest: 0, lastStudy: null } };
+  const p = { 
+    sections: {}, 
+    questions: {}, 
+    flashcards: {}, 
+    // Gamification data
+    streaks: { 
+      current: 0, 
+      longest: 0, 
+      lastStudy: null 
+    },
+    stats: {
+      totalXP: 0,
+      level: 1,
+      quizzesTaken: 0,
+      questionsAnswered: 0,
+      correctAnswers: 0,
+      cardsReviewed: 0,
+      examsTaken: 0,
+      examsPassed: 0,
+      perfectQuizzes: 0,
+      studyDays: [],
+      achievements: [],
+      joinDate: new Date().toISOString()
+    }
+  };
   SECTIONS_DATA.forEach(s => {
     p.sections[s.id] = { mastery: 0, correct: 0, total: 0 };
     s.practiceQuestions.forEach((q, i) => { p.questions[`${s.id}-${i}`] = { mastery: 0, attempts: 0 }; });
     // Initialize flashcard SRS data
     s.flashcards.forEach((fc, i) => {
       p.flashcards[`${s.id}-${i}`] = {
-        ease: 2.5,        // Ease factor (2.5 = normal, higher = easier)
-        interval: 0,      // Days until next review (0 = new card)
-        repetitions: 0,   // Number of successful reviews
-        dueDate: null,    // When card is due (null = new)
-        lastReview: null  // Last review timestamp
+        ease: 2.5,
+        interval: 0,
+        repetitions: 0,
+        dueDate: null,
+        lastReview: null
       };
     });
   });
   return p;
+};
+
+// Achievement definitions
+const ACHIEVEMENTS = [
+  { id: 'first_quiz', name: 'First Steps', desc: 'Complete your first quiz', icon: '🎯', xp: 50, check: (s) => s.quizzesTaken >= 1 },
+  { id: 'quiz_5', name: 'Getting Warmed Up', desc: 'Complete 5 quizzes', icon: '🔥', xp: 100, check: (s) => s.quizzesTaken >= 5 },
+  { id: 'quiz_25', name: 'Quiz Master', desc: 'Complete 25 quizzes', icon: '🏆', xp: 250, check: (s) => s.quizzesTaken >= 25 },
+  { id: 'quiz_100', name: 'Quiz Legend', desc: 'Complete 100 quizzes', icon: '👑', xp: 500, check: (s) => s.quizzesTaken >= 100 },
+  { id: 'perfect_1', name: 'Perfect Score', desc: 'Get 100% on a quiz', icon: '💯', xp: 100, check: (s) => s.perfectQuizzes >= 1 },
+  { id: 'perfect_10', name: 'Perfectionist', desc: 'Get 10 perfect quizzes', icon: '⭐', xp: 300, check: (s) => s.perfectQuizzes >= 10 },
+  { id: 'streak_3', name: 'On Fire', desc: '3-day study streak', icon: '🔥', xp: 75, check: (s, str) => str.longest >= 3 },
+  { id: 'streak_7', name: 'Week Warrior', desc: '7-day study streak', icon: '💪', xp: 150, check: (s, str) => str.longest >= 7 },
+  { id: 'streak_30', name: 'Monthly Master', desc: '30-day study streak', icon: '🗓️', xp: 500, check: (s, str) => str.longest >= 30 },
+  { id: 'cards_100', name: 'Card Collector', desc: 'Review 100 flashcards', icon: '🃏', xp: 100, check: (s) => s.cardsReviewed >= 100 },
+  { id: 'cards_500', name: 'Card Shark', desc: 'Review 500 flashcards', icon: '🦈', xp: 300, check: (s) => s.cardsReviewed >= 500 },
+  { id: 'exam_pass', name: 'Exam Ready', desc: 'Pass a practice exam', icon: '📝', xp: 200, check: (s) => s.examsPassed >= 1 },
+  { id: 'exam_5', name: 'Exam Expert', desc: 'Pass 5 practice exams', icon: '🎓', xp: 500, check: (s) => s.examsPassed >= 5 },
+  { id: 'q_500', name: 'Question Crusher', desc: 'Answer 500 questions', icon: '❓', xp: 200, check: (s) => s.questionsAnswered >= 500 },
+  { id: 'q_1000', name: 'Knowledge Seeker', desc: 'Answer 1000 questions', icon: '🧠', xp: 400, check: (s) => s.questionsAnswered >= 1000 },
+  { id: 'accuracy_80', name: 'Sharp Mind', desc: 'Maintain 80%+ accuracy', icon: '🎯', xp: 150, check: (s) => s.questionsAnswered >= 50 && (s.correctAnswers / s.questionsAnswered) >= 0.8 },
+  { id: 'level_5', name: 'Rising Star', desc: 'Reach level 5', icon: '⭐', xp: 0, check: (s) => s.level >= 5 },
+  { id: 'level_10', name: 'Pro Learner', desc: 'Reach level 10', icon: '🌟', xp: 0, check: (s) => s.level >= 10 },
+  { id: 'level_20', name: 'Elite Scholar', desc: 'Reach level 20', icon: '💎', xp: 0, check: (s) => s.level >= 20 },
+  { id: 'xp_1000', name: 'XP Hunter', desc: 'Earn 1000 XP', icon: '💰', xp: 0, check: (s) => s.totalXP >= 1000 },
+  { id: 'xp_5000', name: 'XP Champion', desc: 'Earn 5000 XP', icon: '🏅', xp: 0, check: (s) => s.totalXP >= 5000 }
+];
+
+// XP required for each level
+const getXPForLevel = (level) => Math.floor(100 * Math.pow(1.5, level - 1));
+const getLevelFromXP = (xp) => {
+  let level = 1;
+  let required = 100;
+  while (xp >= required) {
+    level++;
+    required += getXPForLevel(level);
+  }
+  return level;
 };
 
 export default function App() {
@@ -233,6 +294,152 @@ export default function App() {
     return { total: allCards.length, dueNow, newCards, learning, mature };
   }, [getDueCards]);
 
+  // ============ GAMIFICATION FUNCTIONS ============
+  
+  // Update streak on study activity
+  const updateStreak = useCallback(() => {
+    const today = new Date().toDateString();
+    const stats = prog.stats || {};
+    const streaks = prog.streaks || { current: 0, longest: 0, lastStudy: null };
+    
+    if (streaks.lastStudy === today) return; // Already studied today
+    
+    const yesterday = new Date(Date.now() - 86400000).toDateString();
+    let newCurrent = streaks.lastStudy === yesterday ? streaks.current + 1 : 1;
+    let newLongest = Math.max(streaks.longest, newCurrent);
+    
+    // Track study days
+    const studyDays = stats.studyDays || [];
+    if (!studyDays.includes(today)) {
+      studyDays.push(today);
+    }
+    
+    setProg(p => ({
+      ...p,
+      streaks: { current: newCurrent, longest: newLongest, lastStudy: today },
+      stats: { ...p.stats, studyDays: studyDays.slice(-365) } // Keep last year
+    }));
+  }, [prog]);
+
+  // Award XP and check for level up
+  const awardXP = useCallback((amount, reason) => {
+    setProg(p => {
+      const currentXP = (p.stats?.totalXP || 0) + amount;
+      const newLevel = getLevelFromXP(currentXP);
+      const oldLevel = p.stats?.level || 1;
+      
+      return {
+        ...p,
+        stats: {
+          ...p.stats,
+          totalXP: currentXP,
+          level: newLevel
+        }
+      };
+    });
+  }, []);
+
+  // Check and award achievements
+  const checkAchievements = useCallback(() => {
+    const stats = prog.stats || {};
+    const streaks = prog.streaks || {};
+    const earned = stats.achievements || [];
+    
+    let newAchievements = [];
+    
+    ACHIEVEMENTS.forEach(ach => {
+      if (!earned.includes(ach.id) && ach.check(stats, streaks)) {
+        newAchievements.push(ach);
+      }
+    });
+    
+    if (newAchievements.length > 0) {
+      const totalXP = newAchievements.reduce((sum, a) => sum + a.xp, 0);
+      setProg(p => ({
+        ...p,
+        stats: {
+          ...p.stats,
+          achievements: [...(p.stats?.achievements || []), ...newAchievements.map(a => a.id)],
+          totalXP: (p.stats?.totalXP || 0) + totalXP,
+          level: getLevelFromXP((p.stats?.totalXP || 0) + totalXP)
+        }
+      }));
+      return newAchievements;
+    }
+    return [];
+  }, [prog]);
+
+  // Record quiz completion for gamification
+  const recordQuizComplete = useCallback((correct, total) => {
+    updateStreak();
+    const isPerfect = correct === total;
+    
+    setProg(p => ({
+      ...p,
+      stats: {
+        ...p.stats,
+        quizzesTaken: (p.stats?.quizzesTaken || 0) + 1,
+        questionsAnswered: (p.stats?.questionsAnswered || 0) + total,
+        correctAnswers: (p.stats?.correctAnswers || 0) + correct,
+        perfectQuizzes: (p.stats?.perfectQuizzes || 0) + (isPerfect ? 1 : 0)
+      }
+    }));
+    
+    // Award XP: base + bonus for correct answers + perfect bonus
+    const xp = 10 + (correct * 5) + (isPerfect ? 50 : 0);
+    awardXP(xp, 'quiz');
+    
+    setTimeout(checkAchievements, 100);
+  }, [updateStreak, awardXP, checkAchievements]);
+
+  // Record exam completion
+  const recordExamComplete = useCallback((passed, score) => {
+    updateStreak();
+    
+    setProg(p => ({
+      ...p,
+      stats: {
+        ...p.stats,
+        examsTaken: (p.stats?.examsTaken || 0) + 1,
+        examsPassed: (p.stats?.examsPassed || 0) + (passed ? 1 : 0),
+        questionsAnswered: (p.stats?.questionsAnswered || 0) + 100,
+        correctAnswers: (p.stats?.correctAnswers || 0) + score
+      }
+    }));
+    
+    const xp = 50 + (score * 2) + (passed ? 100 : 0);
+    awardXP(xp, 'exam');
+    
+    setTimeout(checkAchievements, 100);
+  }, [updateStreak, awardXP, checkAchievements]);
+
+  // Record card review for gamification
+  const recordCardReview = useCallback(() => {
+    updateStreak();
+    
+    setProg(p => ({
+      ...p,
+      stats: {
+        ...p.stats,
+        cardsReviewed: (p.stats?.cardsReviewed || 0) + 1
+      }
+    }));
+    
+    awardXP(2, 'card');
+  }, [updateStreak, awardXP]);
+
+  // Get user's earned achievements
+  const getEarnedAchievements = useCallback(() => {
+    const earned = prog.stats?.achievements || [];
+    return ACHIEVEMENTS.filter(a => earned.includes(a.id));
+  }, [prog]);
+
+  // Get next achievements to earn
+  const getNextAchievements = useCallback(() => {
+    const earned = prog.stats?.achievements || [];
+    return ACHIEVEMENTS.filter(a => !earned.includes(a.id)).slice(0, 3);
+  }, [prog]);
+
   // Exam Timer
   useEffect(() => {
     if (!examStarted || examFinished || examTimeLeft <= 0) return;
@@ -363,13 +570,103 @@ export default function App() {
     else setAiRes(`**Tips:** Focus on Contracts (12%), Brokerage (12%), Mortgages (9%). Overall: ${overall()}%. Need 75% to pass.`);
   };
 
-  const Dashboard = () => (
+  const Dashboard = () => {
+    const stats = prog.stats || {};
+    const streaks = prog.streaks || { current: 0, longest: 0 };
+    const level = stats.level || 1;
+    const totalXP = stats.totalXP || 0;
+    const currentLevelXP = level > 1 ? Array.from({length: level - 1}, (_, i) => getXPForLevel(i + 1)).reduce((a, b) => a + b, 0) : 0;
+    const nextLevelXP = getXPForLevel(level);
+    const progressToNext = totalXP - currentLevelXP;
+    const earnedAchievements = getEarnedAchievements();
+    const nextAchievements = getNextAchievements();
+    const accuracy = stats.questionsAnswered > 0 ? Math.round((stats.correctAnswers / stats.questionsAnswered) * 100) : 0;
+    
+    return (
     <div className="space-y-6">
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {[{ l: 'Mastery', v: `${overall()}%`, c: 'from-blue-500 to-indigo-600' }, { l: 'Questions', v: Object.values(prog.questions).filter(q => q.attempts > 0).length, c: 'from-emerald-500 to-green-600' }, { l: 'Topics', v: '19', c: 'from-purple-500 to-violet-600' }, { l: 'Ready', v: overall() >= 75 ? 'YES!' : 'No', c: overall() >= 75 ? 'from-green-500 to-emerald-600' : 'from-amber-500 to-orange-600' }].map((s, i) => (
-          <div key={i} className={`bg-gradient-to-br ${s.c} rounded-2xl p-5 text-white shadow-lg`}><div className="text-2xl font-bold">{s.v}</div><div className="text-sm opacity-80">{s.l}</div></div>
-        ))}
+      {/* Level & XP Bar */}
+      <div className="bg-gradient-to-r from-amber-500 via-orange-500 to-red-500 rounded-2xl p-5 text-white shadow-lg">
+        <div className="flex justify-between items-center mb-3">
+          <div className="flex items-center gap-3">
+            <div className="w-14 h-14 bg-white/20 rounded-full flex items-center justify-center">
+              <span className="text-2xl font-bold">{level}</span>
+            </div>
+            <div>
+              <div className="text-sm opacity-80">Level {level}</div>
+              <div className="text-xl font-bold">{totalXP.toLocaleString()} XP</div>
+            </div>
+          </div>
+          <div className="text-right">
+            <div className="text-3xl font-bold">🔥 {streaks.current}</div>
+            <div className="text-sm opacity-80">day streak</div>
+          </div>
+        </div>
+        <div className="w-full bg-white/30 rounded-full h-3">
+          <div className="bg-white h-3 rounded-full transition-all" style={{ width: `${Math.min(100, (progressToNext / nextLevelXP) * 100)}%` }} />
+        </div>
+        <div className="flex justify-between text-xs mt-1 opacity-80">
+          <span>{progressToNext} / {nextLevelXP} XP to level {level + 1}</span>
+          <span>Best streak: {streaks.longest} days</span>
+        </div>
       </div>
+
+      {/* Quick Stats */}
+      <div className="grid grid-cols-4 gap-3">
+        <div className="bg-white rounded-xl p-3 shadow text-center">
+          <div className="text-2xl font-bold text-blue-600">{overall()}%</div>
+          <div className="text-xs text-slate-600">Mastery</div>
+        </div>
+        <div className="bg-white rounded-xl p-3 shadow text-center">
+          <div className="text-2xl font-bold text-emerald-600">{stats.quizzesTaken || 0}</div>
+          <div className="text-xs text-slate-600">Quizzes</div>
+        </div>
+        <div className="bg-white rounded-xl p-3 shadow text-center">
+          <div className="text-2xl font-bold text-purple-600">{accuracy}%</div>
+          <div className="text-xs text-slate-600">Accuracy</div>
+        </div>
+        <div className="bg-white rounded-xl p-3 shadow text-center">
+          <div className="text-2xl font-bold text-amber-600">{earnedAchievements.length}</div>
+          <div className="text-xs text-slate-600">Badges</div>
+        </div>
+      </div>
+
+      {/* Achievements Preview */}
+      {earnedAchievements.length > 0 && (
+        <div className="bg-white rounded-xl p-4 shadow">
+          <div className="flex justify-between items-center mb-3">
+            <h3 className="font-bold text-slate-800">🏆 Recent Achievements</h3>
+            <button onClick={() => setTab('profile')} className="text-xs text-blue-600 hover:underline">View All</button>
+          </div>
+          <div className="flex gap-2 overflow-x-auto pb-2">
+            {earnedAchievements.slice(-5).reverse().map(a => (
+              <div key={a.id} className="flex-shrink-0 bg-gradient-to-br from-amber-100 to-yellow-100 rounded-lg p-3 text-center min-w-[80px]">
+                <div className="text-2xl mb-1">{a.icon}</div>
+                <div className="text-xs font-medium text-amber-800">{a.name}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Next Achievements */}
+      {nextAchievements.length > 0 && (
+        <div className="bg-slate-50 rounded-xl p-4">
+          <h3 className="font-medium text-slate-700 text-sm mb-2">🎯 Next Goals</h3>
+          <div className="space-y-2">
+            {nextAchievements.map(a => (
+              <div key={a.id} className="flex items-center gap-3 text-sm">
+                <span className="text-lg opacity-50">{a.icon}</span>
+                <div className="flex-1">
+                  <div className="font-medium text-slate-700">{a.name}</div>
+                  <div className="text-xs text-slate-500">{a.desc}</div>
+                </div>
+                <span className="text-xs text-amber-600 font-medium">+{a.xp} XP</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {weak().length > 0 && weak()[0].m < 70 && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
           <h3 className="font-bold text-amber-800 mb-2">⚠️ Weak Areas</h3>
@@ -445,6 +742,154 @@ export default function App() {
       </div>
     </div>
   );
+  };
+
+  // PROFILE/ACHIEVEMENTS PAGE
+  const Profile = () => {
+    const stats = prog.stats || {};
+    const streaks = prog.streaks || { current: 0, longest: 0 };
+    const level = stats.level || 1;
+    const totalXP = stats.totalXP || 0;
+    const earnedAchievements = getEarnedAchievements();
+    const accuracy = stats.questionsAnswered > 0 ? Math.round((stats.correctAnswers / stats.questionsAnswered) * 100) : 0;
+    const studyDays = stats.studyDays || [];
+    
+    // Calculate days studied this month
+    const thisMonth = new Date().getMonth();
+    const thisYear = new Date().getFullYear();
+    const daysThisMonth = studyDays.filter(d => {
+      const date = new Date(d);
+      return date.getMonth() === thisMonth && date.getFullYear() === thisYear;
+    }).length;
+    
+    return (
+      <div className="space-y-6">
+        {/* Profile Header */}
+        <div className="bg-gradient-to-br from-slate-800 to-slate-900 rounded-2xl p-6 text-white">
+          <div className="flex items-center gap-4 mb-4">
+            <div className="w-20 h-20 bg-gradient-to-br from-amber-400 to-orange-500 rounded-full flex items-center justify-center text-3xl font-bold">
+              {level}
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold">Level {level} Scholar</h1>
+              <p className="text-slate-400">{totalXP.toLocaleString()} Total XP</p>
+            </div>
+          </div>
+          
+          {/* Stats Grid */}
+          <div className="grid grid-cols-4 gap-3 mt-4">
+            <div className="bg-white/10 rounded-lg p-3 text-center">
+              <div className="text-2xl font-bold">🔥 {streaks.current}</div>
+              <div className="text-xs text-slate-400">Current Streak</div>
+            </div>
+            <div className="bg-white/10 rounded-lg p-3 text-center">
+              <div className="text-2xl font-bold">⭐ {streaks.longest}</div>
+              <div className="text-xs text-slate-400">Best Streak</div>
+            </div>
+            <div className="bg-white/10 rounded-lg p-3 text-center">
+              <div className="text-2xl font-bold">📊 {accuracy}%</div>
+              <div className="text-xs text-slate-400">Accuracy</div>
+            </div>
+            <div className="bg-white/10 rounded-lg p-3 text-center">
+              <div className="text-2xl font-bold">📅 {daysThisMonth}</div>
+              <div className="text-xs text-slate-400">Days This Month</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Detailed Stats */}
+        <div className="bg-white rounded-xl p-6 shadow">
+          <h2 className="font-bold text-slate-800 mb-4">📈 Statistics</h2>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-3">
+              <div className="flex justify-between">
+                <span className="text-slate-600">Quizzes Taken</span>
+                <span className="font-bold text-slate-800">{stats.quizzesTaken || 0}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-600">Perfect Quizzes</span>
+                <span className="font-bold text-slate-800">{stats.perfectQuizzes || 0}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-600">Exams Passed</span>
+                <span className="font-bold text-slate-800">{stats.examsPassed || 0}/{stats.examsTaken || 0}</span>
+              </div>
+            </div>
+            <div className="space-y-3">
+              <div className="flex justify-between">
+                <span className="text-slate-600">Questions Answered</span>
+                <span className="font-bold text-slate-800">{stats.questionsAnswered || 0}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-600">Correct Answers</span>
+                <span className="font-bold text-slate-800">{stats.correctAnswers || 0}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-600">Cards Reviewed</span>
+                <span className="font-bold text-slate-800">{stats.cardsReviewed || 0}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* All Achievements */}
+        <div className="bg-white rounded-xl p-6 shadow">
+          <h2 className="font-bold text-slate-800 mb-4">🏆 Achievements ({earnedAchievements.length}/{ACHIEVEMENTS.length})</h2>
+          <div className="grid grid-cols-3 gap-3">
+            {ACHIEVEMENTS.map(ach => {
+              const earned = earnedAchievements.find(a => a.id === ach.id);
+              return (
+                <div 
+                  key={ach.id} 
+                  className={`rounded-xl p-4 text-center transition-all ${
+                    earned 
+                      ? 'bg-gradient-to-br from-amber-100 to-yellow-100 border-2 border-amber-300' 
+                      : 'bg-slate-100 opacity-50'
+                  }`}
+                >
+                  <div className={`text-3xl mb-2 ${!earned && 'grayscale'}`}>{ach.icon}</div>
+                  <div className={`font-bold text-sm ${earned ? 'text-amber-800' : 'text-slate-500'}`}>{ach.name}</div>
+                  <div className="text-xs text-slate-500 mt-1">{ach.desc}</div>
+                  {ach.xp > 0 && <div className="text-xs text-amber-600 mt-1">+{ach.xp} XP</div>}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Study Calendar (Last 30 days) */}
+        <div className="bg-white rounded-xl p-6 shadow">
+          <h2 className="font-bold text-slate-800 mb-4">📅 Study Calendar (Last 30 Days)</h2>
+          <div className="grid grid-cols-7 gap-1">
+            {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d, i) => (
+              <div key={i} className="text-center text-xs text-slate-400 font-medium py-1">{d}</div>
+            ))}
+            {Array.from({ length: 30 }, (_, i) => {
+              const date = new Date(Date.now() - (29 - i) * 86400000);
+              const dateStr = date.toDateString();
+              const studied = studyDays.includes(dateStr);
+              const isToday = dateStr === new Date().toDateString();
+              return (
+                <div 
+                  key={i} 
+                  className={`aspect-square rounded flex items-center justify-center text-xs ${
+                    studied 
+                      ? 'bg-emerald-500 text-white' 
+                      : isToday 
+                        ? 'bg-blue-100 text-blue-600 border-2 border-blue-300' 
+                        : 'bg-slate-100 text-slate-400'
+                  }`}
+                  title={date.toLocaleDateString()}
+                >
+                  {date.getDate()}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   const History = () => (
     <div className="space-y-4">
@@ -599,7 +1044,31 @@ export default function App() {
 
   const Quiz = () => {
     if (!quiz.length) return <div className="max-w-md mx-auto bg-white rounded-xl p-6 shadow text-center"><div className="text-4xl mb-3">🎯</div><h2 className="font-bold text-slate-800 mb-4">Practice Quiz</h2><button onClick={() => { setQuiz(genQuiz()); setQIdx(0); setScore({ c: 0, t: 0 }); setAnswer(null); setShowExp(false); }} className="w-full p-3 bg-gradient-to-r from-red-500 to-rose-500 text-white rounded-xl font-medium mb-3">🎯 Adaptive (25Q)</button><select onChange={e => { if (e.target.value) { const s = SECTIONS_DATA.find(x => x.id === parseInt(e.target.value)); setQuiz(s.practiceQuestions.map((q, i) => ({ ...q, sid: s.id, st: s.title, qi: i }))); setQIdx(0); setScore({ c: 0, t: 0 }); setAnswer(null); setShowExp(false); } }} className="w-full p-2 border rounded-lg text-sm"><option value="">Select topic...</option>{SECTIONS_DATA.map(s => <option key={s.id} value={s.id}>{s.title}</option>)}</select></div>;
-    if (qIdx >= quiz.length) { const p = Math.round((score.c / score.t) * 100); return <div className={`max-w-md mx-auto rounded-xl p-6 text-white text-center ${p >= 75 ? 'bg-gradient-to-br from-emerald-500 to-green-600' : 'bg-gradient-to-br from-amber-500 to-orange-600'}`}><div className="text-4xl mb-2">{p >= 75 ? '🏆' : '📚'}</div><h2 className="text-2xl font-bold mb-1">{p >= 75 ? 'Great!' : 'Keep Going!'}</h2><p className="text-lg">{score.c}/{score.t} ({p}%)</p><div className="flex gap-3 mt-4 justify-center"><button onClick={() => setQuiz([])} className="px-4 py-2 bg-white/20 rounded-lg text-sm">Back</button><button onClick={() => { setQuiz(genQuiz()); setQIdx(0); setScore({ c: 0, t: 0 }); setAnswer(null); setShowExp(false); }} className="px-4 py-2 bg-white text-slate-800 rounded-lg text-sm font-medium">New Quiz</button></div></div>; }
+    if (qIdx >= quiz.length) { 
+      const p = Math.round((score.c / score.t) * 100);
+      // Record for gamification (only once)
+      if (score.t > 0 && !quiz.recorded) {
+        quiz.recorded = true;
+        recordQuizComplete(score.c, score.t);
+      }
+      const xpEarned = 10 + (score.c * 5) + (p === 100 ? 50 : 0);
+      return (
+        <div className="max-w-md mx-auto space-y-4">
+          <div className={`rounded-xl p-6 text-white text-center ${p >= 75 ? 'bg-gradient-to-br from-emerald-500 to-green-600' : 'bg-gradient-to-br from-amber-500 to-orange-600'}`}>
+            <div className="text-4xl mb-2">{p >= 75 ? '🏆' : '📚'}</div>
+            <h2 className="text-2xl font-bold mb-1">{p >= 75 ? 'Great!' : 'Keep Going!'}</h2>
+            <p className="text-lg">{score.c}/{score.t} ({p}%)</p>
+            <div className="mt-3 inline-block px-4 py-1 bg-white/20 rounded-full text-sm">
+              +{xpEarned} XP earned!
+            </div>
+          </div>
+          <div className="flex gap-3 justify-center">
+            <button onClick={() => setQuiz([])} className="px-4 py-2 bg-slate-100 text-slate-700 rounded-lg text-sm">Back</button>
+            <button onClick={() => { setQuiz(genQuiz()); setQIdx(0); setScore({ c: 0, t: 0 }); setAnswer(null); setShowExp(false); }} className="px-4 py-2 bg-blue-500 text-white rounded-lg text-sm font-medium">New Quiz</button>
+          </div>
+        </div>
+      );
+    }
     const q = quiz[qIdx];
     return <div className="max-w-md mx-auto space-y-4"><div className="flex justify-between text-slate-600 text-xs"><span>Q{qIdx + 1}/{quiz.length}</span><span>✓{score.c}</span></div><div className="w-full bg-slate-200 rounded-full h-1.5"><div className="bg-emerald-500 h-1.5 rounded-full" style={{ width: `${((qIdx + 1) / quiz.length) * 100}%` }} /></div><div className="bg-white rounded-xl p-5 shadow"><span className="inline-block px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-xs mb-3">{q.st}</span><h3 className="font-semibold text-slate-800 mb-4">{q.question}</h3><div className="space-y-2">{q.options.map((o, i) => <button key={i} onClick={() => !showExp && setAnswer(i)} disabled={showExp} className={`w-full p-3 text-left rounded-lg border-2 text-sm ${showExp ? (i === q.correct ? 'border-emerald-500 bg-emerald-50' : i === answer ? 'border-red-500 bg-red-50' : 'border-slate-200 bg-slate-50') : (answer === i ? 'border-blue-500 bg-blue-50' : 'border-slate-200 hover:border-slate-300')}`}><span className="inline-flex w-6 h-6 rounded bg-white border font-semibold mr-2 items-center justify-center text-xs">{String.fromCharCode(65 + i)}</span>{o}</button>)}</div>{showExp && <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg"><div className="font-semibold text-blue-800 text-xs mb-1">💡</div><p className="text-blue-700 text-sm">{q.explanation}</p></div>}</div><button onClick={() => { if (!showExp && answer !== null) { setShowExp(true); setScore(s => ({ c: s.c + (answer === q.correct ? 1 : 0), t: s.t + 1 })); record(q.sid, q.qi, answer === q.correct); } else if (showExp) { setQIdx(i => i + 1); setAnswer(null); setShowExp(false); } }} disabled={answer === null && !showExp} className={`w-full py-2.5 rounded-xl font-medium text-sm ${answer !== null || showExp ? (showExp ? 'bg-emerald-500 text-white' : 'bg-blue-500 text-white') : 'bg-slate-100 text-slate-400'}`}>{showExp ? (qIdx < quiz.length - 1 ? 'Next →' : 'Results') : 'Check'}</button></div>;
   };
@@ -1090,8 +1559,8 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
-      <header className="sticky top-0 z-50 bg-white/80 backdrop-blur border-b border-slate-200"><div className="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between"><div className="flex items-center gap-2"><div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-lg flex items-center justify-center text-white font-bold text-sm">FL</div><div><h1 className="text-sm font-bold text-slate-800">FL RE Exam</h1><p className="text-xs text-slate-500">v2.5 SRS</p></div></div><nav className="flex gap-1">{[{ id: 'dashboard', l: '📊' }, { id: 'srs', l: '🧠' }, { id: 'study', l: '📖' }, { id: 'quiz', l: '🎯' }, { id: 'exam', l: '📝' }, { id: 'cases', l: '⚖️' }, { id: 'ai', l: '✨' }].map(t => <button key={t.id} onClick={() => setTab(t.id)} className={`px-2 py-1.5 rounded text-sm ${tab === t.id ? 'bg-blue-100 text-blue-700' : 'hover:bg-slate-100 text-slate-600'}`}>{t.l}</button>)}</nav></div></header>
-      <main className="max-w-3xl mx-auto px-4 py-6">{tab === 'dashboard' && <Dashboard />}{tab === 'srs' && <SRS />}{tab === 'study' && <Study />}{tab === 'cards' && <Cards />}{tab === 'quiz' && <Quiz />}{tab === 'exam' && <Exam />}{tab === 'history' && <History />}{tab === 'cases' && <Cases />}{tab === 'ai' && <AI />}</main>
+      <header className="sticky top-0 z-50 bg-white/80 backdrop-blur border-b border-slate-200"><div className="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between"><div className="flex items-center gap-2"><div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-lg flex items-center justify-center text-white font-bold text-sm">FL</div><div><h1 className="text-sm font-bold text-slate-800">FL RE Exam</h1><p className="text-xs text-slate-500">v2.6</p></div></div><nav className="flex gap-1">{[{ id: 'dashboard', l: '📊' }, { id: 'srs', l: '🧠' }, { id: 'study', l: '📖' }, { id: 'quiz', l: '🎯' }, { id: 'exam', l: '📝' }, { id: 'cases', l: '⚖️' }, { id: 'profile', l: '🏆' }].map(t => <button key={t.id} onClick={() => setTab(t.id)} className={`px-2 py-1.5 rounded text-sm ${tab === t.id ? 'bg-blue-100 text-blue-700' : 'hover:bg-slate-100 text-slate-600'}`}>{t.l}</button>)}</nav></div></header>
+      <main className="max-w-3xl mx-auto px-4 py-6">{tab === 'dashboard' && <Dashboard />}{tab === 'srs' && <SRS />}{tab === 'study' && <Study />}{tab === 'cards' && <Cards />}{tab === 'quiz' && <Quiz />}{tab === 'exam' && <Exam />}{tab === 'history' && <History />}{tab === 'cases' && <Cases />}{tab === 'profile' && <Profile />}{tab === 'ai' && <AI />}</main>
       <footer className="border-t border-slate-200 bg-white/50 mt-8"><div className="max-w-3xl mx-auto px-4 py-3 text-center text-xs text-slate-500">FL DBPR • Ch 475 • 100Q • 75% pass</div></footer>
     </div>
   );
