@@ -7,6 +7,7 @@ import {
   RotateCcw, ArrowRight, ArrowLeft, Home, Settings, User, Info
 } from 'lucide-react';
 import { HISTORICAL_TIMELINE, CASE_STUDIES, EXAM_SECTIONS, EXAM_STATS } from './examData.js';
+import { CHAPTERS, getChapterById } from './data/chapters';
 
 // ============================================================
 // FL REAL ESTATE EXAM - ADAPTIVE STUDY PLATFORM v3.0 POLISHED
@@ -95,6 +96,11 @@ export default function App() {
   const examTimerRef = useRef(null);
 
   useEffect(() => { localStorage.setItem('fl-re-v3', JSON.stringify(prog)); }, [prog]);
+
+  useEffect(() => {
+  console.log('Chapters loaded:', CHAPTERS.length, 'chapters');
+  console.log('Chapter 1:', getChapterById(1)?.title);
+}, []);
 
   useEffect(() => {
     if (examTimerActive && examTime > 0 && !examSubmitted) {
