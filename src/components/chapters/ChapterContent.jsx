@@ -3,7 +3,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { 
   BookOpen, ChevronRight, ChevronDown, Clock, Target, 
   CheckCircle2, Circle, Play, Pause, Scale, FileText,
-  Bookmark, BookmarkCheck, Brain, GraduationCap, Sparkles
+  Bookmark, BookmarkCheck, Brain, GraduationCap, Sparkles,
+  ArrowLeft, MessageCircle
 } from 'lucide-react';
 
 /**
@@ -23,7 +24,8 @@ const ChapterContent = ({
   onSectionComplete,
   onTimeUpdate,
   onStartExam,
-  onOpenTutor
+  onOpenTutor,
+  onBack
 }) => {
   const [activeSection, setActiveSection] = useState(null);
   const [expandedSections, setExpandedSections] = useState(new Set());
@@ -151,6 +153,19 @@ const ChapterContent = ({
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
+      {/* Back Button */}
+      {onBack && (
+        <motion.button
+          initial={{ opacity: 0, x: -20 }}
+          animate={{ opacity: 1, x: 0 }}
+          onClick={onBack}
+          className="flex items-center gap-2 text-surface-400 hover:text-surface-200 transition-colors mb-2"
+        >
+          <ArrowLeft className="w-5 h-5" />
+          <span>Back to Chapters</span>
+        </motion.button>
+      )}
+
       {/* Chapter Header */}
       <motion.div 
         initial={{ opacity: 0, y: 20 }}
@@ -170,8 +185,17 @@ const ChapterContent = ({
               <p className="text-surface-400 text-sm mt-1">{chapter.subtitle}</p>
             </div>
           </div>
-          <div className="text-right">
+          <div className="flex flex-col items-end gap-2">
             <div className="badge badge-gold">{chapter.examPercentage}% of Exam</div>
+            {onOpenTutor && (
+              <button
+                onClick={() => onOpenTutor(chapter)}
+                className="flex items-center gap-2 px-3 py-1.5 bg-brand-500/20 hover:bg-brand-500/30 text-brand-400 rounded-lg text-sm transition-colors"
+              >
+                <MessageCircle className="w-4 h-4" />
+                Ask AI Tutor
+              </button>
+            )}
           </div>
         </div>
 

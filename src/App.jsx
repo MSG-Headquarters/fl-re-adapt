@@ -7,8 +7,8 @@ import {
   RotateCcw, ArrowRight, ArrowLeft, Home, Settings, User, Info
 } from 'lucide-react';
 import { HISTORICAL_TIMELINE, CASE_STUDIES, EXAM_SECTIONS, EXAM_STATS } from './examData.js';
-import { CHAPTERS, getChapterById } from './data/chapters';
-import ChapterContent from './components/chapters/ChapterContent';
+import { CHAPTERS } from './data/chapters/index.js';
+import StudyGuide from './components/study/StudyGuide.jsx';
 
 // ============================================================
 // FL REAL ESTATE EXAM - ADAPTIVE STUDY PLATFORM v3.0 POLISHED
@@ -16,7 +16,34 @@ import ChapterContent from './components/chapters/ChapterContent';
 
 const TIMELINE_DATA = HISTORICAL_TIMELINE || [];
 const CASES_DATA = CASE_STUDIES || [];
+
+// Use new CHAPTERS data for flashcards, fall back to old SECTIONS_DATA for other features
 const SECTIONS_DATA = EXAM_SECTIONS || [];
+
+// Extract all flashcards from new CHAPTERS data
+const getAllFlashcardsFromChapters = () => {
+  const allCards = [];
+  CHAPTERS.forEach(chapter => {
+    if (chapter.flashcards && chapter.flashcards.length > 0) {
+      chapter.flashcards.forEach((card, idx) => {
+        allCards.push({
+          ...card,
+          sectionId: chapter.id,
+          sectionTitle: chapter.title,
+          key: `ch${chapter.id}-${idx}`
+        });
+      });
+    }
+  });
+  return allCards;
+};
+
+// Create sections data structure compatible with flashcard system using CHAPTERS
+const FLASHCARD_SECTIONS = CHAPTERS.map(chapter => ({
+  id: chapter.id,
+  title: chapter.title,
+  flashcards: chapter.flashcards || []
+}));
 
 const ACHIEVEMENTS = [
   { id: 'first_quiz', name: 'First Steps', desc: 'Complete your first quiz', icon: '🎯', xp: 50, check: (s) => s.quizzesTaken >= 1 },
@@ -62,7 +89,7 @@ const staggerChildren = { animate: { transition: { staggerChildren: 0.05 } } };
 export default function App() {
   const [tab, setTab] = useState('dashboard');
   const [prog, setProg] = useState(() => {
-    const saved = localStorage.getItem('fl-re-v3');
+    const saved = localStorage.getItem('fl-re-v2');
     return saved ? JSON.parse(saved) : createProgress();
   });
   
@@ -96,7 +123,7 @@ export default function App() {
   
   const examTimerRef = useRef(null);
 
-  useEffect(() => { localStorage.setItem('fl-re-v3', JSON.stringify(prog)); }, [prog]);
+  useEffect(() => { localStorage.setItem('fl-re-v2', JSON.stringify(prog)); }, [prog]);
 
   useEffect(() => {
     if (examTimerActive && examTime > 0 && !examSubmitted) {
@@ -144,20 +171,7 @@ export default function App() {
   }, []);
 
   const checkAchievements = useCallback(() => {
-    if (!prog.stats) return; // Safety check
-    const stats = { 
-      quizzesTaken: 0,
-      perfectQuizzes: 0,
-      cardsReviewed: 0,
-      examsPassed: 0,
-      examHighScore: 0,
-      questionsAnswered: 0,
-      correctAnswers: 0,
-      level: 1,
-      achievements: [],
-      ...prog.stats, 
-      overallMastery: overall() 
-    };
+    const stats = { ...prog.stats, overallMastery: overall() };
     const streaks = prog.streaks || { current: 0, longest: 0 };
     const earned = stats.achievements || [];
     ACHIEVEMENTS.forEach(ach => {
@@ -170,50 +184,49 @@ export default function App() {
     });
   }, [prog, overall, addXP]);
 
- useEffect(() => { 
-  if (prog.stats) checkAchievements(); 
-}, [prog.stats, prog.streaks?.current, checkAchievements]);
+  useEffect(() => { checkAchievements(); }, [prog.stats.quizzesTaken, prog.stats.cardsReviewed, prog.streaks?.current]);
+
   const getEarnedAchievements = useCallback(() => {
-    const earned = prog.stats?.achievements || [];
+    const earned = prog.stats.achievements || [];
     return ACHIEVEMENTS.filter(a => earned.includes(a.id));
-  }, [prog.stats?.achievements]);
+  }, [prog.stats.achievements]);
 
   const getNextAchievements = useCallback(() => {
-    const earned = prog.stats?.achievements || [];
+    const earned = prog.stats.achievements || [];
     return ACHIEVEMENTS.filter(a => !earned.includes(a.id)).slice(0, 3);
-  }, [prog.stats?.achievements]);
+  }, [prog.stats.achievements]);
 
   const getSrsStats = useCallback(() => {
     const now = new Date();
     let dueNow = 0, newCards = 0, learning = 0, mature = 0;
-    SECTIONS_DATA.forEach(section => {
+    FLASHCARD_SECTIONS.forEach(section => {
       section.flashcards?.forEach((_, idx) => {
-        const key = section.id + '-' + idx;
+        const key = `ch${section.id}-${idx}`;
         const card = prog.flashcards[key];
         if (!card) newCards++;
         else { const dueDate = new Date(card.dueDate); if (dueDate <= now) dueNow++; if (card.interval < 21) learning++; else mature++; }
       });
     });
-    const total = SECTIONS_DATA.reduce((sum, s) => sum + (s.flashcards?.length || 0), 0);
+    const total = FLASHCARD_SECTIONS.reduce((sum, s) => sum + (s.flashcards?.length || 0), 0);
     return { dueNow, newCards, learning, mature, total };
   }, [prog.flashcards]);
 
   const startSrsSession = useCallback(() => {
     const now = new Date();
     const deck = [];
-    SECTIONS_DATA.forEach(section => {
+    FLASHCARD_SECTIONS.forEach(section => {
       section.flashcards?.forEach((card, idx) => {
-        const key = section.id + '-' + idx;
+        const key = `ch${section.id}-${idx}`;
         const srsData = prog.flashcards[key];
         if (srsData) { const dueDate = new Date(srsData.dueDate); if (dueDate <= now) deck.push({ ...card, key, sectionId: section.id, sectionTitle: section.title, isNew: false, interval: srsData.interval }); }
       });
     });
     let newAdded = 0;
-    SECTIONS_DATA.forEach(section => {
+    FLASHCARD_SECTIONS.forEach(section => {
       if (newAdded >= 10) return;
       section.flashcards?.forEach((card, idx) => {
         if (newAdded >= 10) return;
-        const key = section.id + '-' + idx;
+        const key = `ch${section.id}-${idx}`;
         if (!prog.flashcards[key]) { deck.push({ ...card, key, sectionId: section.id, sectionTitle: section.title, isNew: true, interval: 0 }); newAdded++; }
       });
     });
@@ -262,60 +275,10 @@ export default function App() {
     return all.filter(q => { sc[q.sid] = (sc[q.sid] || 0) + 1; return sc[q.sid] <= Math.ceil(n / 5); }).slice(0, n).sort(() => Math.random() - 0.5);
   }, [weak, prog.questions]);
 
-const startExam = useCallback(() => {
-    // Build weighted question pool based on DBPR percentages
-    const weightedQuestions = [];
-    
-    SECTIONS_DATA.forEach(section => {
-      const questions = (section.practiceQuestions || []).map((q, i) => ({ 
-        ...q, 
-        sid: section.id, 
-        st: section.title, 
-        qi: i 
-      }));
-      
-      // Calculate how many questions this section should contribute
-      // Based on its percentage (e.g., 12% = 12 questions out of 100)
-      const targetCount = Math.round(section.percentage);
-      
-      // Shuffle section questions and take up to targetCount
-      const shuffled = questions.sort(() => Math.random() - 0.5);
-      const selected = shuffled.slice(0, Math.min(targetCount, shuffled.length));
-      
-      // If we don't have enough questions, repeat some (with flag)
-      while (selected.length < targetCount && questions.length > 0) {
-        const additional = questions[Math.floor(Math.random() * questions.length)];
-        selected.push({ ...additional, repeated: true });
-      }
-      
-      weightedQuestions.push(...selected);
-    });
-    
-    // Shuffle final exam and ensure exactly 100 questions
-    const finalExam = weightedQuestions.sort(() => Math.random() - 0.5).slice(0, 100);
-    
-    // If we have less than 100, fill with random questions from high-weight sections
-    while (finalExam.length < 100) {
-      const highWeightSections = SECTIONS_DATA.filter(s => s.percentage >= 6);
-      const randomSection = highWeightSections[Math.floor(Math.random() * highWeightSections.length)];
-      const sectionQs = (randomSection.practiceQuestions || []).map((q, i) => ({ 
-        ...q, 
-        sid: randomSection.id, 
-        st: randomSection.title, 
-        qi: i 
-      }));
-      if (sectionQs.length > 0) {
-        finalExam.push(sectionQs[Math.floor(Math.random() * sectionQs.length)]);
-      }
-    }
-    
-    setExamQuestions(finalExam);
-    setExamAnswers({});
-    setExamTime(210 * 60);
-    setExamSubmitted(false);
-    setExamMode(true);
-    setExamTimerActive(true);
-    setQIdx(0);
+  const startExam = useCallback(() => {
+    const all = SECTIONS_DATA.flatMap(s => (s.practiceQuestions || []).map((q, i) => ({ ...q, sid: s.id, st: s.title, qi: i })));
+    const shuffled = all.sort(() => Math.random() - 0.5).slice(0, 100);
+    setExamQuestions(shuffled); setExamAnswers({}); setExamTime(210 * 60); setExamSubmitted(false); setExamMode(true); setExamTimerActive(true); setQIdx(0);
   }, []);
 
   const submitExam = useCallback(() => {
@@ -336,12 +299,11 @@ const startExam = useCallback(() => {
 
   const navItems = [
     { id: 'dashboard', icon: LayoutDashboard, label: 'Home' },
-    { id: 'chapters', icon: GraduationCap, label: 'Course' },
     { id: 'srs', icon: Brain, label: 'Cards' },
     { id: 'study', icon: BookOpen, label: 'Study' },
+    { id: 'guide', icon: FileText, label: 'Guide' },
     { id: 'quiz', icon: Target, label: 'Quiz' },
-    { id: 'exam', icon: FileText, label: 'Exam' },
-    { id: 'cases', icon: Scale, label: 'Cases' },
+    { id: 'exam', icon: Scale, label: 'Exam' },
     { id: 'profile', icon: Trophy, label: 'Profile' },
   ];
 
@@ -942,6 +904,21 @@ const startExam = useCallback(() => {
   };
 
   // ============================================================
+  // STUDY GUIDE TAB COMPONENT
+  // ============================================================
+  const StudyGuideTab = () => {
+    return (
+      <StudyGuide 
+        onBack={null}
+        onOpenChapter={(chapterId) => {
+          setSection(chapterId);
+          setTab('study');
+        }}
+      />
+    );
+  };
+
+  // ============================================================
   // MAIN RENDER
   // ============================================================
   return (
@@ -1006,12 +983,11 @@ const startExam = useCallback(() => {
         <AnimatePresence mode="wait">
           <motion.div key={tab} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.2 }}>
             {tab === 'dashboard' && <Dashboard />}
-            {tab === 'chapters' && <ChapterContent chapter={getChapterById(1)} />}
             {tab === 'srs' && <SRS />}
             {tab === 'study' && <Study />}
+            {tab === 'guide' && <StudyGuideTab />}
             {tab === 'quiz' && <Quiz />}
             {tab === 'exam' && <Exam />}
-            {tab === 'cases' && <Cases />}
             {tab === 'profile' && <Profile />}
           </motion.div>
         </AnimatePresence>

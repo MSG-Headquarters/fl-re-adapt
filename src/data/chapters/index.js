@@ -1,57 +1,51 @@
 /**
  * FL Real Estate Chapters Index
  * 
- * All 19 chapters organized according to DBPR exam blueprint
- * Each chapter will be fully populated with content
+ * All 19 chapters fully populated with content
+ * Organized according to DBPR exam blueprint (100% coverage)
  */
 
 import { CHAPTER_1 } from './chapter1';
+import { CHAPTER_2 } from './chapter2';
+import { CHAPTER_3 } from './chapter3';
+import { CHAPTER_4 } from './chapter4';
+import { CHAPTER_5 } from './chapter5';
+import { CHAPTER_6 } from './chapter6';
+import { CHAPTER_7 } from './chapter7';
+import { CHAPTER_8 } from './chapter8';
+import { CHAPTER_9 } from './chapter9';
+import { CHAPTER_10 } from './chapter10';
+import { CHAPTER_11 } from './chapter11';
+import { CHAPTER_12 } from './chapter12';
+import { CHAPTER_13 } from './chapter13';
+import { CHAPTER_14 } from './chapter14';
+import { CHAPTER_15 } from './chapter15';
+import { CHAPTER_16 } from './chapter16';
+import { CHAPTER_17 } from './chapter17';
+import { CHAPTER_18 } from './chapter18';
+import { CHAPTER_19 } from './chapter19';
 
-// Chapter stubs for remaining chapters (to be populated)
-const createChapterStub = (id, title, subtitle, percentage, color) => ({
-  id,
-  title,
-  subtitle,
-  examPercentage: percentage,
-  requiredTimeMinutes: Math.max(180, percentage * 30), // Minimum 3 hours, scaled by importance
-  color,
-  icon: 'BookOpen',
-  objectives: [`Learn the fundamentals of ${title}`],
-  statutes: [],
-  sections: [{
-    id: `${id}.1`,
-    title: 'Introduction',
-    content: `# ${title}\n\nThis chapter content is being developed...`,
-    keyPoints: ['Content coming soon'],
-    examTips: ['Study the Florida Statutes']
-  }],
-  flashcards: [],
-  practiceQuestions: [],
-  caseStudies: [],
-  summary: `Chapter ${id} summary coming soon...`
-});
-
-// Export all chapters
+// Export all chapters - COMPLETE CURRICULUM (19 chapters, 100% exam coverage)
 export const CHAPTERS = [
   CHAPTER_1,
-  createChapterStub(2, 'License Law & Qualifications', 'Requirements for Florida Real Estate Licensure', 6, '#8B5CF6'),
-  createChapterStub(3, 'FREC & DBPR Structure', 'Florida Real Estate Commission Organization', 2, '#06B6D4'),
-  createChapterStub(4, 'Authorized Relationships', 'Brokerage Relationships in Florida', 7, '#10B981'),
-  createChapterStub(5, 'Brokerage Activities & Procedures', 'Operating a Real Estate Brokerage', 12, '#F59E0B'),
-  createChapterStub(6, 'Violations, Penalties & Procedures', 'Disciplinary Actions and Recovery Fund', 3, '#EF4444'),
-  createChapterStub(7, 'Federal & State Laws', 'Fair Housing, RESPA, and Florida Laws', 3, '#6366F1'),
-  createChapterStub(8, 'Property Rights & Estates', 'Ownership Types and Rights', 8, '#EC4899'),
-  createChapterStub(9, 'Titles, Deeds & Restrictions', 'Transfer of Ownership', 7, '#14B8A6'),
-  createChapterStub(10, 'Legal Descriptions', 'Methods of Describing Real Property', 5, '#F97316'),
-  createChapterStub(11, 'Real Estate Contracts', 'Contract Law and Florida Requirements', 12, '#84CC16'),
-  createChapterStub(12, 'Residential Mortgages', 'Financing Real Estate Purchases', 9, '#A855F7'),
-  createChapterStub(13, 'Mortgage Markets & Sources', 'Primary and Secondary Markets', 4, '#0EA5E9'),
-  createChapterStub(14, 'Computations & Closing', 'Math, Prorations, and Closing Procedures', 6, '#22C55E'),
-  createChapterStub(15, 'Markets & Analysis', 'Real Estate Market Principles', 1, '#EAB308'),
-  createChapterStub(16, 'Real Estate Appraisal', 'Valuation Methods and Principles', 8, '#E11D48'),
-  createChapterStub(17, 'Investments & Business Brokerage', 'Investment Analysis and Business Sales', 2, '#7C3AED'),
-  createChapterStub(18, 'Taxes Affecting Real Estate', 'Property Taxes and Tax Benefits', 3, '#059669'),
-  createChapterStub(19, 'Planning & Zoning', 'Land Use Regulations', 1, '#DC2626')
+  CHAPTER_2,
+  CHAPTER_3,
+  CHAPTER_4,
+  CHAPTER_5,
+  CHAPTER_6,
+  CHAPTER_7,
+  CHAPTER_8,
+  CHAPTER_9,
+  CHAPTER_10,
+  CHAPTER_11,
+  CHAPTER_12,
+  CHAPTER_13,
+  CHAPTER_14,
+  CHAPTER_15,
+  CHAPTER_16,
+  CHAPTER_17,
+  CHAPTER_18,
+  CHAPTER_19
 ];
 
 // Helper functions

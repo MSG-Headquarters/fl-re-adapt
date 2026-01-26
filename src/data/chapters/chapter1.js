@@ -538,75 +538,128 @@ Membership is typically "three-way" - you join all three simultaneously through 
 
   // Flashcards for spaced repetition
   flashcards: [
+    // PHYSICAL CHARACTERISTICS
     {
-      id: "1-fc-1",
-      front: "What are the three unique PHYSICAL characteristics of real estate?",
-      back: "**HID**\n\n• **H**eterogeneity (Uniqueness) - No two parcels alike\n• **I**mmobility - Cannot be moved\n• **D**urability - Land is permanent",
-      difficulty: "easy",
-      section: "1.2"
+      front: 'What are the three unique PHYSICAL characteristics of real estate?',
+      back: 'HID:\n• Heterogeneity (Uniqueness) - No two parcels alike\n• Immobility - Cannot be moved\n• Durability - Land is permanent/indestructible',
+      difficulty: 'easy'
     },
     {
-      id: "1-fc-2",
-      front: "What is the difference between real estate and real property?",
-      back: "**Real Estate** = The physical land and improvements\n\n**Real Property** = Real estate PLUS the bundle of legal rights\n\nReal property includes the RIGHTS associated with ownership.",
-      difficulty: "medium",
-      section: "1.1"
+      front: 'What characteristic explains why "location, location, location" matters?',
+      back: 'IMMOBILITY - Land cannot be moved, so location is fixed permanently. This makes location the most important value factor.',
+      difficulty: 'easy'
     },
     {
-      id: "1-fc-3",
-      front: "What does REALTOR® mean and who can use this term?",
-      back: "**REALTOR®** is a registered trademark of the National Association of REALTORS® (NAR).\n\nOnly **dues-paying members of NAR** can legally use this title.\n\nNot all licensed agents are REALTORS®!",
-      difficulty: "easy",
-      section: "1.7"
+      front: 'What characteristic explains why no two properties are exactly alike?',
+      back: 'HETEROGENEITY (Uniqueness/Non-homogeneity) - Even identical houses differ by exact location, view, neighbors, etc.',
+      difficulty: 'easy'
     },
     {
-      id: "1-fc-4",
-      front: "What are the five rights in the Bundle of Rights? (DEEPC)",
-      back: "**D**isposition - Right to sell, will, or transfer\n**E**njoyment - Right to use legally and enjoy profits\n**E**xclusion - Right to keep others out\n**P**ossession - Right to occupy and control\n**C**ontrol - Right to determine use",
-      difficulty: "medium",
-      section: "1.3"
+      front: 'Why is real estate considered DURABLE?',
+      back: 'Land is permanent and indestructible. Buildings may deteriorate, but the LAND itself lasts forever.',
+      difficulty: 'easy'
+    },
+    
+    // ECONOMIC CHARACTERISTICS
+    {
+      front: 'What are the four ECONOMIC characteristics of real estate?',
+      back: 'SIPS:\n• Scarcity - Limited supply of land\n• Improvements - Affect value of neighboring land\n• Permanence of Investment - Long-term commitment\n• Situs (Area Preference) - Location desirability',
+      difficulty: 'medium'
     },
     {
-      id: "1-fc-5",
-      front: "What is the MARIA test used for?",
-      back: "To determine if an item is a **FIXTURE** (real property) or **personal property**:\n\n**M**ethod of attachment\n**A**daptability\n**R**elationship of parties\n**I**ntention (most important)\n**A**greement (contract terms)",
-      difficulty: "medium",
-      section: "1.4"
+      front: 'What is "situs" in real estate?',
+      back: 'AREA PREFERENCE - The desirability of a location based on economic, social, and political factors. Why people prefer certain areas.',
+      difficulty: 'medium'
+    },
+    
+    // REAL VS PERSONAL PROPERTY
+    {
+      front: 'What is the difference between real estate and real property?',
+      back: 'REAL ESTATE = Physical land and improvements\nREAL PROPERTY = Real estate PLUS the bundle of legal rights',
+      difficulty: 'medium'
     },
     {
-      id: "1-fc-6",
-      front: "What are trade fixtures and who do they belong to?",
-      back: "**Trade fixtures** are items installed by a COMMERCIAL tenant for business purposes.\n\nThey remain the **personal property of the tenant** and can be removed before the lease ends.\n\nExamples: Restaurant equipment, salon chairs, retail displays",
-      difficulty: "medium",
-      section: "1.4"
+      front: 'What is personal property?',
+      back: 'MOVABLE items not attached to land. Also called CHATTELS or PERSONALTY. Examples: Furniture, vehicles, equipment.',
+      difficulty: 'easy'
     },
     {
-      id: "1-fc-7",
-      front: "What characteristic of real estate explains why we say 'location, location, location'?",
-      back: "**IMMOBILITY**\n\nBecause land cannot be moved, its location is fixed permanently. This makes location the most important factor in determining value.\n\nImmobility also explains why real estate markets are LOCAL, not national.",
-      difficulty: "easy",
-      section: "1.2"
+      front: 'What is the MARIA test used for?',
+      back: 'Determines if item is FIXTURE (real property) or personal property:\n• Method of attachment\n• Adaptability to property\n• Relationship of parties\n• Intention (most important)\n• Agreement in contract',
+      difficulty: 'medium'
     },
     {
-      id: "1-fc-8",
-      front: "What characteristic explains why no two properties are exactly alike?",
-      back: "**HETEROGENEITY** (also called Uniqueness or Non-homogeneity)\n\nEven identical houses differ by:\n• Exact location\n• View and exposure\n• Neighboring properties\n• Micro-climate conditions",
-      difficulty: "easy",
-      section: "1.2"
+      front: 'Which MARIA factor is most important?',
+      back: 'INTENTION - What did the parties intend? Did they mean for the item to be permanent or temporary?',
+      difficulty: 'medium'
     },
     {
-      id: "1-fc-9",
-      front: "According to F.S. 475.01(1)(j), what is a sales associate?",
-      back: "A person who performs broker acts but does so **under the direction, control, or management of another person** (their employing broker).\n\nA sales associate renders a professional service and is a professional within the meaning of s. 95.11(4)(a).",
-      difficulty: "hard",
-      section: "1.1"
+      front: 'What are trade fixtures?',
+      back: 'Items installed by COMMERCIAL TENANT for business. Remain PERSONAL PROPERTY of tenant. Can be removed before lease ends. Examples: Restaurant equipment, salon chairs.',
+      difficulty: 'medium'
+    },
+    
+    // BUNDLE OF RIGHTS
+    {
+      front: 'What are the five rights in the Bundle of Rights? (DEEPC)',
+      back: '• Disposition - Right to sell, will, transfer\n• Enjoyment - Right to use and enjoy profits\n• Exclusion - Right to keep others out\n• Possession - Right to occupy\n• Control - Right to determine use',
+      difficulty: 'medium'
     },
     {
-      id: "1-fc-10",
-      front: "What government powers can limit your bundle of rights? (PETE)",
-      back: "**P**olice Power - Regulate for health, safety, welfare (zoning)\n**E**minent Domain - Take for public use WITH compensation\n**T**axation - Levy property taxes\n**E**scheat - Property goes to state if owner dies without heirs",
-      difficulty: "medium",
-      section: "1.3"
+      front: 'What government powers limit the Bundle of Rights? (PETE)',
+      back: '• Police Power - Regulate (zoning, no compensation)\n• Eminent Domain - Take WITH compensation\n• Taxation - Levy property taxes\n• Escheat - State takes if no heirs',
+      difficulty: 'medium'
+    },
+    {
+      front: 'What is the difference between Police Power and Eminent Domain?',
+      back: 'POLICE POWER: Regulate, NO compensation\nEMINENT DOMAIN: Take, WITH just compensation\n\nBoth limit property rights, but only eminent domain requires payment.',
+      difficulty: 'hard'
+    },
+    
+    // LICENSE TYPES
+    {
+      front: 'What is a sales associate?',
+      back: 'Licensed person who performs real estate activities UNDER THE DIRECTION of a broker. Cannot work independently.',
+      difficulty: 'easy'
+    },
+    {
+      front: 'What is a broker?',
+      back: 'Licensed person who can operate INDEPENDENTLY, hire sales associates, maintain escrow accounts, and receive compensation directly from the public.',
+      difficulty: 'easy'
+    },
+    {
+      front: 'What does REALTOR® mean?',
+      back: 'Registered TRADEMARK of NAR (National Association of REALTORS). Only dues-paying NAR members can use this title. Not all agents are REALTORS®.',
+      difficulty: 'easy'
+    },
+    
+    // TYPES OF PROPERTY
+    {
+      front: 'What are the main categories of real property?',
+      back: '• Residential (1-4 units)\n• Commercial (office, retail)\n• Industrial (manufacturing, warehouse)\n• Agricultural (farms, ranches)\n• Special Purpose (churches, schools)',
+      difficulty: 'medium'
+    },
+    {
+      front: 'What is the difference between land and site?',
+      back: 'LAND = Unimproved, raw earth\nSITE = Land that has been improved and is ready for its intended use (graded, utilities, etc.)',
+      difficulty: 'medium'
+    },
+    
+    // MARKET CHARACTERISTICS
+    {
+      front: 'Why are real estate markets considered LOCAL?',
+      back: 'Because of IMMOBILITY - properties cannot be moved. Each market is affected by local factors: employment, schools, transportation, amenities.',
+      difficulty: 'medium'
+    },
+    {
+      front: 'What makes real estate markets SLOW to respond to change?',
+      back: 'Construction takes time, large financial commitments, regulatory approvals needed. Supply cannot quickly adjust to demand.',
+      difficulty: 'medium'
+    },
+    {
+      front: 'What is meant by "highest and best use"?',
+      back: 'The LEGAL, PHYSICALLY POSSIBLE, FINANCIALLY FEASIBLE use that produces the MAXIMUM value. Key appraisal concept.',
+      difficulty: 'hard'
     }
   ],
 
