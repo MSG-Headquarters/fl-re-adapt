@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { HISTORICAL_TIMELINE, CASE_STUDIES, EXAM_SECTIONS, EXAM_STATS } from './examData.js';
 import { CHAPTERS, getChapterById } from './data/chapters';
+import ChapterContent from './components/chapters/ChapterContent';
 
 // ============================================================
 // FL REAL ESTATE EXAM - ADAPTIVE STUDY PLATFORM v3.0 POLISHED
@@ -96,11 +97,6 @@ export default function App() {
   const examTimerRef = useRef(null);
 
   useEffect(() => { localStorage.setItem('fl-re-v3', JSON.stringify(prog)); }, [prog]);
-
-  useEffect(() => {
-  console.log('Chapters loaded:', CHAPTERS.length, 'chapters');
-  console.log('Chapter 1:', getChapterById(1)?.title);
-}, []);
 
   useEffect(() => {
     if (examTimerActive && examTime > 0 && !examSubmitted) {
@@ -340,6 +336,7 @@ const startExam = useCallback(() => {
 
   const navItems = [
     { id: 'dashboard', icon: LayoutDashboard, label: 'Home' },
+    { id: 'chapters', icon: GraduationCap, label: 'Course' },
     { id: 'srs', icon: Brain, label: 'Cards' },
     { id: 'study', icon: BookOpen, label: 'Study' },
     { id: 'quiz', icon: Target, label: 'Quiz' },
@@ -1009,6 +1006,7 @@ const startExam = useCallback(() => {
         <AnimatePresence mode="wait">
           <motion.div key={tab} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.2 }}>
             {tab === 'dashboard' && <Dashboard />}
+            {tab === 'chapters' && <ChapterContent chapter={getChapterById(1)} />}
             {tab === 'srs' && <SRS />}
             {tab === 'study' && <Study />}
             {tab === 'quiz' && <Quiz />}
