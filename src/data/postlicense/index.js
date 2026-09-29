@@ -48,7 +48,11 @@ export const POST_QUICK_REFERENCE = [
   { group: 'Licensing', items: [
     ['SL post-licensing', '45 hrs before 1st renewal (BK: 60)'],
     ['Miss post-licensing', 'License null and void'],
-    ['End-of-course exam', '75% to pass · 1 retest within 1 year'],
+    ['End-of-course exam', '75% to pass · 1 retest (new exam, no wait) within 1 year'],
+    ['Exempt from post', '4-year+ degree in real estate'],
+    ['Hardship extension', '+6 months (physical hardship)'],
+    ['Miss a later renewal', 'Involuntary inactive (not void)'],
+    ['Core Law both years', 'Counts 6 hrs → specialty drops to 5'],
     ['CE after 1st renewal', '14 hrs / 2 yrs (3 core · 3 ethics · 8 specialty)'],
     ['Address change', 'Notify DBPR within 10 days'],
     ['Records', 'Keep 5 years'],
