@@ -4,24 +4,38 @@ import {
   LayoutDashboard, Brain, BookOpen, Target, FileText, Scale, Trophy,
   Flame, Star, Zap, ChevronRight, Check, X, Clock, TrendingUp,
   Award, Calendar, BarChart3, GraduationCap, Sparkles, Play, Pause,
-  RotateCcw, ArrowRight, ArrowLeft, Home, Settings, User, Info
+  RotateCcw, ArrowRight, ArrowLeft, Home, Settings, User, Info, MessageCircle, Send, Repeat, Search as SearchIcon, ImagePlus
 } from 'lucide-react';
-import { HISTORICAL_TIMELINE, CASE_STUDIES, EXAM_SECTIONS, EXAM_STATS } from './examData.js';
-import { CHAPTERS } from './data/chapters/index.js';
+import { ACTIVE_TRACK, TRACKS, switchTrack } from './tracks.js';
 import StudyGuide from './components/study/StudyGuide.jsx';
 import { useAuth } from './contexts/AuthContext.jsx';
 import AuthModal from './components/auth/AuthModal.jsx';
 import UserMenu from './components/auth/UserMenu.jsx';
+import Course, { courseState } from './components/course/Course.jsx';
+import Search, { buildIndex } from './components/Search.jsx';
+import Onboarding, { tourSeen } from './components/Onboarding.jsx';
+import LicensePath from './components/LicensePath.jsx';
+import { renderRich } from './richText.jsx';
 
 // ============================================================
 // FL REAL ESTATE EXAM - ADAPTIVE STUDY PLATFORM v3.0 POLISHED
 // ============================================================
 
-const TIMELINE_DATA = HISTORICAL_TIMELINE || [];
-const CASES_DATA = CASE_STUDIES || [];
+const TRACK = ACTIVE_TRACK;
+const IS_POST = TRACK.key === 'post';
+const TIMELINE_DATA = TRACK.timeline;
+const CASES_DATA = TRACK.cases;
+const CHAPTERS = TRACK.chapters;
 
-// Use new CHAPTERS data for flashcards, fall back to old SECTIONS_DATA for other features
-const SECTIONS_DATA = EXAM_SECTIONS || [];
+// Track-specific sections drive Study / Quiz / Exam
+const SECTIONS_DATA = TRACK.sections;
+
+// Search index for the active track (lessons for post, chapter sections for pre)
+const SEARCH_INDEX = buildIndex({ isPost: IS_POST, sections: SECTIONS_DATA, chapters: CHAPTERS });
+// Compact lesson map the tutor uses to point at "Covered in" lessons
+const LESSON_MAP = IS_POST
+  ? SECTIONS_DATA.flatMap(u => u.sections.map(l => ({ id: `${u.id}:${l.id}`, title: `Unit ${u.num} · ${l.title}` })))
+  : SECTIONS_DATA.map(sec => ({ id: `sec:${sec.id}`, title: sec.title }));
 
 // Extract all flashcards from new CHAPTERS data
 const getAllFlashcardsFromChapters = () => {
@@ -96,8 +110,10 @@ export default function App() {
   
   const [tab, setTab] = useState('dashboard');
   const [prog, setProg] = useState(() => {
-    const saved = localStorage.getItem('fl-re-v2');
-    return saved ? JSON.parse(saved) : createProgress();
+    try {
+      const saved = localStorage.getItem(TRACK.storageKey);
+      return saved ? JSON.parse(saved) : createProgress();
+    } catch { return createProgress(); }
   });
   
   const [section, setSection] = useState(null);
@@ -108,8 +124,15 @@ export default function App() {
   const [score, setScore] = useState({ c: 0, t: 0 });
   const [histSel, setHistSel] = useState(null);
   const [caseCat, setCaseCat] = useState('all');
-  const [aiQuery, setAiRes] = useState('');
-  const [ai, setAi] = useState('');
+  // AI tutor
+  const [tutorMsgs, setTutorMsgs] = useState([]);
+  const [tutorInput, setTutorInput] = useState('');
+  const [tutorBusy, setTutorBusy] = useState(false);
+  const [tutorImage, setTutorImage] = useState(null); // { name, media_type, data, url }
+  const cloudBlobRef = useRef(null); // full cloud progress blob (holds both tracks)
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [courseJump, setCourseJump] = useState(null);
+  const [showTour, setShowTour] = useState(() => !tourSeen(TRACK.key));
   
   const [srsMode, setSrsMode] = useState(false);
   const [srsDeck, setSrsDeck] = useState([]);
@@ -120,7 +143,7 @@ export default function App() {
   const [examMode, setExamMode] = useState(false);
   const [examQuestions, setExamQuestions] = useState([]);
   const [examAnswers, setExamAnswers] = useState({});
-  const [examTime, setExamTime] = useState(210 * 60);
+  const [examTime, setExamTime] = useState(TRACK.examMinutes * 60);
   const [examSubmitted, setExamSubmitted] = useState(false);
   const [examTimerActive, setExamTimerActive] = useState(false);
   
@@ -136,8 +159,12 @@ export default function App() {
     const loadUserProgress = async () => {
       if (user) {
         const cloudProgress = await loadProgress();
-        if (cloudProgress) {
-          setProg(cloudProgress);
+        cloudBlobRef.current = cloudProgress;
+        // Pre-license progress is the top-level blob (backward compatible);
+        // post-licensing progress lives under __post45.
+        const trackProgress = IS_POST ? cloudProgress?.__post45 : cloudProgress;
+        if (trackProgress && trackProgress.stats) {
+          setProg(trackProgress);
         }
       }
     };
@@ -147,7 +174,7 @@ export default function App() {
   // Save progress with debounce (to Supabase if logged in, localStorage always)
   useEffect(() => {
     // Always save to localStorage immediately
-    localStorage.setItem('fl-re-v2', JSON.stringify(prog));
+    try { localStorage.setItem(TRACK.storageKey, JSON.stringify(prog)); } catch {}
     
     // Debounce Supabase saves to avoid too many requests
     if (user) {
@@ -155,7 +182,12 @@ export default function App() {
         clearTimeout(progressSaveTimeoutRef.current);
       }
       progressSaveTimeoutRef.current = setTimeout(() => {
-        saveProgress(prog);
+        const base = cloudBlobRef.current || {};
+        const blob = IS_POST
+          ? { ...(base.stats ? base : createProgress()), __post45: prog }
+          : { ...prog, __post45: base.__post45 };
+        cloudBlobRef.current = blob;
+        saveProgress(blob);
       }, 2000); // Save to cloud after 2 seconds of inactivity
     }
     
@@ -318,8 +350,8 @@ export default function App() {
 
   const startExam = useCallback(() => {
     const all = SECTIONS_DATA.flatMap(s => (s.practiceQuestions || []).map((q, i) => ({ ...q, sid: s.id, st: s.title, qi: i })));
-    const shuffled = all.sort(() => Math.random() - 0.5).slice(0, 100);
-    setExamQuestions(shuffled); setExamAnswers({}); setExamTime(210 * 60); setExamSubmitted(false); setExamMode(true); setExamTimerActive(true); setQIdx(0);
+    const shuffled = all.sort(() => Math.random() - 0.5).slice(0, TRACK.examQuestions);
+    setExamQuestions(shuffled); setExamAnswers({}); setExamTime(TRACK.examMinutes * 60); setExamSubmitted(false); setExamMode(true); setExamTimerActive(true); setQIdx(0);
   }, []);
 
   const submitExam = useCallback(() => {
@@ -340,13 +372,118 @@ export default function App() {
 
   const navItems = [
     { id: 'dashboard', icon: LayoutDashboard, label: 'Home' },
+    IS_POST ? { id: 'course', icon: GraduationCap, label: 'Course' } : null,
     { id: 'srs', icon: Brain, label: 'Cards' },
-    { id: 'study', icon: BookOpen, label: 'Study' },
+    IS_POST ? null : { id: 'study', icon: BookOpen, label: 'Study' },
     { id: 'guide', icon: FileText, label: 'Guide' },
     { id: 'quiz', icon: Target, label: 'Quiz' },
     { id: 'exam', icon: Scale, label: 'Exam' },
+    { id: 'tutor', icon: MessageCircle, label: 'Tutor' },
     { id: 'profile', icon: Trophy, label: 'Profile' },
-  ];
+  ].filter(Boolean);
+
+  // Open a search hit or a tutor "Covered in" link
+  const openTarget = (t) => {
+    if (!t) return;
+    if (IS_POST) { setCourseJump(t); setTab('course'); }
+    else if (t.sid !== undefined) { setSection(t.sid); setTab('study'); }
+  };
+  const openLessonId = (id) => {
+    if (IS_POST) { const [uid, lid] = id.split(':'); openTarget({ kind: 'lesson', uid, lid }); }
+    else { const sid = id.replace(/^sec:/, ''); openTarget({ sid: isNaN(+sid) ? sid : +sid }); }
+  };
+  const lessonTitle = (id) => LESSON_MAP.find(l => l.id === id)?.title || id;
+
+  // ============================================================
+  // AI TUTOR
+  // ============================================================
+  const askTutor = async (text, openTab = false) => {
+    const content = (text || '').trim() || (tutorImage ? 'Explain this question: which answer is correct and why?' : '');
+    if (!content || tutorBusy) return;
+    if (openTab) setTab('tutor');
+    const img = tutorImage;
+    const history = [...tutorMsgs, { role: 'user', content, imageUrl: img?.url }];
+    setTutorMsgs(history);
+    setTutorInput('');
+    setTutorImage(null);
+    setTutorBusy(true);
+    try {
+      const res = await fetch('/api/ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: history.slice(-12).map(m => ({ role: m.role, content: m.content })),
+          image: img ? { media_type: img.media_type, data: img.data } : undefined,
+          context: { track: TRACK.key, overallMastery: overall(), weakAreas: weak().map(w => ({ title: w.title })), lessons: LESSON_MAP },
+        }),
+      });
+      const data = await res.json();
+      setTutorMsgs(m => [...m, { role: 'assistant', content: data.response || 'No response.', covered: (data.covered || []).filter(id => LESSON_MAP.some(l => l.id === id)) }]);
+    } catch {
+      setTutorMsgs(m => [...m, { role: 'assistant', content: 'The tutor is unreachable right now. Check the server and ANTHROPIC_API_KEY.' }]);
+    } finally {
+      setTutorBusy(false);
+    }
+  };
+
+  // Screenshot / image attachment for the tutor (paste, drop or pick)
+  const attachImage = (file) => {
+    if (!file || !/^image\/(png|jpe?g|gif|webp)$/.test(file.type)) return;
+    if (file.size > 4.5 * 1024 * 1024) { alert('That image is over 4.5 MB. Try a smaller screenshot.'); return; }
+    const r = new FileReader();
+    r.onload = () => { const url = String(r.result); setTutorImage({ name: file.name || 'screenshot', media_type: file.type === 'image/jpg' ? 'image/jpeg' : file.type, data: url.split(',')[1], url }); };
+    r.readAsDataURL(file);
+  };
+
+  const tutorStarters = IS_POST
+    ? ['Quiz me on escrow timelines', 'Explain transaction broker vs single agent', 'Walk me through a tax proration', 'What are my weakest units and what should I drill?']
+    : ['Explain the Mrs. Murphy exemption', 'Quiz me on Chapter 475', 'What are common exam traps?', 'What should I study next?'];
+
+  const Tutor = () => (
+    <motion.div className="space-y-4" initial="initial" animate="animate" variants={fadeInUp}
+      onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); attachImage(e.dataTransfer.files?.[0]); }}>
+      <div className="text-center py-2">
+        <h1 className="text-2xl font-display font-bold text-surface-100">AI Tutor</h1>
+        <p className="text-surface-400 mt-1 text-sm">Knows your weak areas. Ask anything, paste a screenshot of a question, or have it quiz you.</p>
+      </div>
+      <div className="glass-card p-4 space-y-3 min-h-[40vh]">
+        {tutorMsgs.length === 0 && (
+          <div className="grid grid-cols-1 gap-2">
+            {tutorStarters.map(t => <button key={t} onClick={() => askTutor(t)} className="btn-secondary text-sm text-left">{t}</button>)}
+          </div>
+        )}
+        {tutorMsgs.map((m, i) => (
+          <div key={i} className={'rounded-xl p-3 text-sm ' + (m.role === 'user' ? 'bg-brand-500/15 text-surface-100 ml-8' : 'bg-surface-800/70 text-surface-200 mr-8')}>
+            {m.imageUrl && <img src={m.imageUrl} alt="attached screenshot" className="rounded-lg mb-2 max-h-48" />}
+            <div className="whitespace-pre-wrap">{renderRich(m.content)}</div>
+            {m.covered?.length > 0 && (
+              <div className="mt-3 pt-2 border-t border-surface-700/60">
+                <div className="text-xs text-surface-500 mb-1">Covered in</div>
+                <div className="flex flex-wrap gap-2">{m.covered.map(id => <button key={id} onClick={() => openLessonId(id)} className="text-xs rounded-lg px-2 py-1 bg-brand-500/15 text-brand-300 hover:bg-brand-500/25">{lessonTitle(id)} →</button>)}</div>
+              </div>
+            )}
+          </div>
+        ))}
+        {tutorBusy && <div className="text-surface-500 text-sm">Thinking…</div>}
+      </div>
+      {tutorImage && (
+        <div className="flex items-center gap-3 glass-card p-2">
+          <img src={tutorImage.url} alt="" className="h-12 rounded" />
+          <span className="text-xs text-surface-400 flex-1 truncate">{tutorImage.name}</span>
+          <button onClick={() => setTutorImage(null)} className="text-surface-500 hover:text-surface-200"><X className="w-4 h-4" /></button>
+        </div>
+      )}
+      <form onSubmit={e => { e.preventDefault(); askTutor(tutorInput); }} className="flex gap-2">
+        <label className="btn-secondary px-3 flex items-center cursor-pointer" title="Attach a screenshot">
+          <ImagePlus className="w-4 h-4" />
+          <input type="file" accept="image/png,image/jpeg,image/gif,image/webp" className="hidden" onChange={e => { attachImage(e.target.files?.[0]); e.target.value = ''; }} />
+        </label>
+        <input value={tutorInput} onChange={e => setTutorInput(e.target.value)} onPaste={e => { const f = [...(e.clipboardData?.files || [])].find(x => x.type.startsWith('image/')); if (f) { e.preventDefault(); attachImage(f); } }} placeholder="Ask the tutor… (paste a screenshot)" className="flex-1 rounded-xl bg-surface-800 border border-surface-700 px-4 py-3 text-surface-100 text-sm focus:outline-none focus:border-brand-500" autoFocus />
+        <button type="submit" disabled={tutorBusy || (!tutorInput.trim() && !tutorImage)} className="btn-primary px-4 disabled:opacity-50"><Send className="w-4 h-4" /></button>
+      </form>
+      {tutorMsgs.length > 0 && <button onClick={() => setTutorMsgs([])} className="text-xs text-surface-500 hover:text-surface-300">Clear conversation</button>}
+    </motion.div>
+  );
 
   // ============================================================
   // DASHBOARD COMPONENT
@@ -406,6 +543,26 @@ export default function App() {
             </motion.div>
           ))}
         </motion.div>
+
+        {/* Course progress (post) / licensing path (pre) */}
+        {IS_POST ? (() => {
+          const cs = courseState(SECTIONS_DATA, prog.course);
+          return (
+            <motion.div variants={fadeInUp} className="glass-card p-5 cursor-pointer" onClick={() => setTab('course')} whileHover={{ scale: 1.01 }}>
+              <div className="flex items-center gap-4">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-brand-500 to-amber-600 flex items-center justify-center"><GraduationCap className="w-7 h-7 text-surface-950" /></div>
+                <div className="flex-1 min-w-0">
+                  <h3 className="font-display font-semibold text-surface-100">Post-Licensing 45 course</h3>
+                  <p className="text-surface-400 text-sm truncate">{cs.next.kind === 'orientation' ? 'Start with the 5-minute orientation' : cs.next.kind === 'certificate' ? 'Complete — view your certificate' : 'Next: ' + cs.next.label}</p>
+                  <div className="progress-track mt-2"><div className="progress-fill" style={{ width: cs.pct + '%' }} /></div>
+                </div>
+                <div className="text-2xl font-display font-bold text-brand-400">{cs.pct}%</div>
+              </div>
+            </motion.div>
+          );
+        })() : (
+          <motion.div variants={fadeInUp}><LicensePath current="pre" /></motion.div>
+        )}
 
         {/* SRS Card */}
         {(srsStatsData.dueNow > 0 || srsStatsData.newCards > 0) && (
@@ -476,7 +633,7 @@ export default function App() {
           <motion.button onClick={() => { startExam(); setTab('exam'); }} className="glass-card-hover p-5 text-left" whileHover={{ scale: 1.02 }}>
             <FileText className="w-8 h-8 text-blue-400 mb-3" />
             <h3 className="font-display font-semibold text-surface-100">Practice Exam</h3>
-            <p className="text-sm text-surface-400 mt-1">100 questions, 3.5 hours</p>
+            <p className="text-sm text-surface-400 mt-1">{TRACK.examQuestions} questions, {TRACK.examMinutes / 60} hours</p>
           </motion.button>
         </motion.div>
       </motion.div>
@@ -584,19 +741,40 @@ export default function App() {
           <button onClick={() => setSection(null)} className="btn-ghost flex items-center gap-2"><ArrowLeft className="w-4 h-4" /> Back to Topics</button>
           <div className="glass-card p-6">
             <div className="flex items-center gap-3 mb-4">
-              <div className="w-12 h-12 rounded-xl flex items-center justify-center text-white font-bold" style={{ backgroundColor: selectedSection.color }}>{selectedSection.percentage}%</div>
+              <div className="w-12 h-12 rounded-xl flex items-center justify-center text-white font-bold" style={{ backgroundColor: selectedSection.color }}>{IS_POST ? 'U' + selectedSection.num : selectedSection.percentage + '%'}</div>
               <div><h2 className="text-xl font-display font-bold text-surface-100">{selectedSection.title}</h2><p className="text-surface-400 text-sm">{selectedSection.topics?.join(' • ')}</p></div>
             </div>
             <div className="bg-surface-800/50 rounded-xl p-4 mb-4"><p className="text-surface-300 text-sm leading-relaxed">{selectedSection.content}</p></div>
+            {selectedSection.objectives && (
+              <div className="mb-4">
+                <h4 className="text-xs uppercase tracking-wide text-surface-500 mb-2">You should be able to</h4>
+                <ul className="space-y-1">{selectedSection.objectives.map((o, i) => <li key={i} className="text-surface-300 text-sm flex gap-2"><Check className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />{o}</li>)}</ul>
+              </div>
+            )}
             <div className="flex gap-3">
               <button onClick={() => { const q = (selectedSection.practiceQuestions || []).map((x, i) => ({ ...x, sid: selectedSection.id, st: selectedSection.title, qi: i })); setQuiz(q.sort(() => Math.random() - 0.5)); setQIdx(0); setScore({ c: 0, t: 0 }); setAnswer(null); setShowExp(false); setTab('quiz'); }} className="btn-primary flex-1">Quiz This Topic</button>
             </div>
           </div>
+          {selectedSection.sections?.map((sec, si) => (
+            <div key={si} className="glass-card p-6 space-y-3">
+              <h3 className="font-display font-semibold text-surface-100 text-lg">{sec.title}</h3>
+              {sec.body.map((para, pi) => <p key={pi} className="text-surface-300 text-sm leading-relaxed">{renderRich(para)}</p>)}
+              {sec.keyPoints?.length > 0 && (
+                <div className="rounded-xl p-4 bg-brand-500/10 border border-brand-500/20">
+                  <div className="text-brand-400 text-xs font-semibold uppercase tracking-wide mb-2">Key points</div>
+                  <ul className="space-y-1">{sec.keyPoints.map((k, ki) => <li key={ki} className="text-surface-200 text-sm">• {k}</li>)}</ul>
+                </div>
+              )}
+              {sec.examTips?.map((t, ti) => (
+                <div key={ti} className="rounded-xl p-3 bg-amber-500/10 border border-amber-500/30 text-amber-200 text-sm"><span className="font-semibold">Exam trap: </span>{t}</div>
+              ))}
+            </div>
+          ))}
           {selectedSection.flashcards?.length > 0 && (
             <div className="glass-card p-6">
               <h3 className="font-display font-semibold text-surface-100 mb-4">📚 Key Flashcards ({selectedSection.flashcards.length})</h3>
               <div className="space-y-3">
-                {selectedSection.flashcards.slice(0, 5).map((card, i) => (
+                {selectedSection.flashcards.slice(0, IS_POST ? 50 : 5).map((card, i) => (
                   <div key={i} className="bg-surface-800/50 rounded-xl p-4">
                     <div className="font-medium text-surface-200 mb-2">{card.front}</div>
                     <div className="text-surface-400 text-sm">{card.back}</div>
@@ -613,7 +791,7 @@ export default function App() {
       <motion.div className="space-y-6" initial="initial" animate="animate" variants={staggerChildren}>
         <motion.div variants={fadeInUp} className="text-center py-4">
           <h1 className="text-2xl font-display font-bold text-surface-100">Study Topics</h1>
-          <p className="text-surface-400 mt-1">19 sections covering all exam content</p>
+          <p className="text-surface-400 mt-1">{TRACK.studySubtitle}</p>
         </motion.div>
         <motion.div variants={fadeInUp} className="space-y-3">
           {SECTIONS_DATA.map(s => {
@@ -621,7 +799,7 @@ export default function App() {
             return (
               <motion.div key={s.id} onClick={() => setSection(s.id)} className="glass-card-hover p-4 cursor-pointer" whileHover={{ x: 5 }}>
                 <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-xl flex items-center justify-center text-white font-bold text-sm" style={{ backgroundColor: s.color }}>{s.percentage}%</div>
+                  <div className="w-12 h-12 rounded-xl flex items-center justify-center text-white font-bold text-sm" style={{ backgroundColor: s.color }}>{IS_POST ? 'U' + s.num : s.percentage + '%'}</div>
                   <div className="flex-1 min-w-0">
                     <h3 className="font-display font-semibold text-surface-100 truncate">{s.title}</h3>
                     <div className="flex items-center gap-2 mt-1">
@@ -701,6 +879,7 @@ export default function App() {
               <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="mt-4 p-4 rounded-xl bg-blue-500/10 border border-blue-500/30">
                 <div className="font-semibold text-blue-400 text-sm mb-1 flex items-center gap-2"><Info className="w-4 h-4" /> Explanation</div>
                 <p className="text-surface-300 text-sm">{q.explanation}</p>
+                <button onClick={() => askTutor(`Help me understand this one.\nQuestion: ${q.question}\nOptions: ${q.options.map((o, k) => String.fromCharCode(65 + k) + ') ' + o).join('  ')}\nCorrect answer: ${q.options[q.correct]}${answer !== q.correct && answer !== null ? '\nI picked: ' + q.options[answer] : ''}`, true)} className="mt-3 text-xs text-brand-400 hover:text-brand-300 font-medium flex items-center gap-1"><MessageCircle className="w-3 h-3" /> Ask the tutor why</button>
               </motion.div>
             )}
           </AnimatePresence>
@@ -822,12 +1001,12 @@ export default function App() {
           <div className="text-center py-8">
             <div className="w-20 h-20 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center"><FileText className="w-10 h-10 text-white" /></div>
             <h1 className="text-2xl font-display font-bold text-surface-100">Practice Exam</h1>
-            <p className="text-surface-400 mt-2">Simulate the real FL RE exam experience</p>
+            <p className="text-surface-400 mt-2">{IS_POST ? 'Simulate the 45-hour end-of-course exam' : 'Simulate the real FL RE exam experience'}</p>
           </div>
           <div className="glass-card p-6 space-y-4">
-            <div className="flex items-center gap-3 text-surface-300"><Clock className="w-5 h-5 text-blue-400" /><span>3 hours 30 minutes time limit</span></div>
-            <div className="flex items-center gap-3 text-surface-300"><Target className="w-5 h-5 text-emerald-400" /><span>100 questions (75% to pass)</span></div>
-            <div className="flex items-center gap-3 text-surface-300"><BarChart3 className="w-5 h-5 text-purple-400" /><span>Weighted by exam topic distribution</span></div>
+            <div className="flex items-center gap-3 text-surface-300"><Clock className="w-5 h-5 text-blue-400" /><span>{Math.floor(TRACK.examMinutes / 60)} hours{TRACK.examMinutes % 60 ? ' ' + (TRACK.examMinutes % 60) + ' minutes' : ''} practice time limit</span></div>
+            <div className="flex items-center gap-3 text-surface-300"><Target className="w-5 h-5 text-emerald-400" /><span>{TRACK.examQuestions} questions ({TRACK.passPct}% to pass)</span></div>
+            <div className="flex items-center gap-3 text-surface-300"><BarChart3 className="w-5 h-5 text-purple-400" /><span>{IS_POST ? 'No going back once you move on — like the real exam, answer with confidence' : 'Weighted by exam topic distribution'}</span></div>
           </div>
           <button onClick={startExam} className="btn-primary w-full py-4 text-lg">Start Practice Exam</button>
           {prog.stats.examsTaken > 0 && (
@@ -850,8 +1029,47 @@ export default function App() {
             <motion.div className="text-6xl mb-4" initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring', bounce: 0.5 }}>{passed ? '🎉' : '📚'}</motion.div>
             <h2 className="text-3xl font-display font-bold text-white mb-2">{passed ? 'PASSED!' : 'Keep Studying'}</h2>
             <p className="text-5xl font-bold text-white my-4">{pct}%</p>
-            <p className="text-white/80">{correct}/100 correct • 75% needed to pass</p>
+            <p className="text-white/80">{correct}/{examQuestions.length} correct • {TRACK.passPct}% needed to pass</p>
           </div>
+          {(() => {
+            // Per-unit breakdown + missed questions so every exam turns into a study list
+            const byUnit = {};
+            examQuestions.forEach((q, i) => { const u = byUnit[q.st] || (byUnit[q.st] = { c: 0, t: 0 }); u.t++; if (examAnswers[i] === q.correct) u.c++; });
+            const missed = examQuestions.map((q, i) => ({ q, i })).filter(({ q, i }) => examAnswers[i] !== q.correct);
+            return (
+              <>
+                <div className="glass-card p-5">
+                  <h3 className="font-display font-semibold text-surface-100 mb-3">Score by unit</h3>
+                  <div className="space-y-2">
+                    {Object.entries(byUnit).sort((a, b) => (a[1].c / a[1].t) - (b[1].c / b[1].t)).map(([t, u]) => {
+                      const up = Math.round((u.c / u.t) * 100);
+                      return (
+                        <div key={t} className="text-sm">
+                          <div className="flex justify-between text-surface-300"><span className="truncate pr-2">{t}</span><span className={up >= 75 ? 'text-emerald-400' : 'text-amber-400'}>{u.c}/{u.t}</span></div>
+                          <div className="h-1.5 bg-surface-700 rounded-full overflow-hidden mt-1"><div className="h-full rounded-full" style={{ width: up + '%', backgroundColor: up >= 75 ? '#10B981' : '#F59E0B' }} /></div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+                {missed.length > 0 && (
+                  <div className="glass-card p-5">
+                    <h3 className="font-display font-semibold text-surface-100 mb-3">Review what you missed ({missed.length})</h3>
+                    <div className="space-y-4">
+                      {missed.map(({ q, i }) => (
+                        <div key={i} className="border-b border-surface-700/50 pb-3 last:border-0">
+                          <p className="text-surface-200 text-sm font-medium">{i + 1}. {q.question}</p>
+                          {examAnswers[i] !== undefined && <p className="text-red-400 text-xs mt-1">Your answer: {q.options[examAnswers[i]]}</p>}
+                          <p className="text-emerald-400 text-xs mt-1">Correct: {q.options[q.correct]}</p>
+                          <p className="text-surface-400 text-xs mt-1">{q.explanation}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
+            );
+          })()}
           <div className="flex gap-3">
             <button onClick={() => { setExamMode(false); setExamSubmitted(false); }} className="btn-secondary flex-1">Back</button>
             <button onClick={startExam} className="btn-primary flex-1">Retake Exam</button>
@@ -866,10 +1084,10 @@ export default function App() {
       <div className="space-y-4">
         <div className="glass-card p-4 sticky top-16 z-40 backdrop-blur-xl">
           <div className="flex justify-between items-center">
-            <div><span className="text-surface-400 text-sm">Question {qIdx + 1}/100</span><div className={'font-mono text-lg font-bold ' + (examTime < 600 ? 'text-red-400' : 'text-brand-400')}>{formatTime(examTime)}</div></div>
+            <div><span className="text-surface-400 text-sm">Question {qIdx + 1}/{examQuestions.length}</span><div className={'font-mono text-lg font-bold ' + (examTime < 600 ? 'text-red-400' : 'text-brand-400')}>{formatTime(examTime)}</div></div>
             <div className="text-right"><span className="text-surface-400 text-sm">{answered} answered</span><button onClick={submitExam} className="block mt-1 text-sm text-brand-400 hover:text-brand-300 font-medium">Submit Exam</button></div>
           </div>
-          <div className="progress-track mt-2"><div className="progress-fill" style={{ width: (answered / 100) * 100 + '%' }} /></div>
+          <div className="progress-track mt-2"><div className="progress-fill" style={{ width: (answered / examQuestions.length) * 100 + '%' }} /></div>
         </div>
         <div className="glass-card p-6">
           <span className="badge badge-info mb-3">{q.st}</span>
@@ -882,18 +1100,27 @@ export default function App() {
             ))}
           </div>
         </div>
+        {IS_POST ? (
+          <button
+            onClick={() => { if (qIdx >= examQuestions.length - 1) submitExam(); else setQIdx(i => i + 1); }}
+            disabled={examAnswers[qIdx] === undefined}
+            className="btn-primary w-full disabled:opacity-50">
+            {qIdx >= examQuestions.length - 1 ? 'Finish & Submit' : 'Lock Answer & Next →'}
+          </button>
+        ) : (
         <div className="flex gap-3">
           <button onClick={() => setQIdx(i => Math.max(0, i - 1))} disabled={qIdx === 0} className="btn-secondary flex-1 disabled:opacity-50">← Previous</button>
-          <button onClick={() => setQIdx(i => Math.min(99, i + 1))} disabled={qIdx === 99} className="btn-primary flex-1 disabled:opacity-50">Next →</button>
+          <button onClick={() => setQIdx(i => Math.min(examQuestions.length - 1, i + 1))} disabled={qIdx === examQuestions.length - 1} className="btn-primary flex-1 disabled:opacity-50">Next →</button>
         </div>
-        <div className="glass-card p-4">
+        )}
+        {!IS_POST && <div className="glass-card p-4">
           <h4 className="text-sm font-medium text-surface-400 mb-3">Jump to Question</h4>
           <div className="grid grid-cols-10 gap-1">
             {examQuestions.map((_, i) => (
               <button key={i} onClick={() => setQIdx(i)} className={'aspect-square rounded text-xs font-medium transition-all ' + (examAnswers[i] !== undefined ? 'bg-emerald-500 text-white' : i === qIdx ? 'bg-brand-500 text-surface-950' : 'bg-surface-700 text-surface-400 hover:bg-surface-600')}>{i + 1}</button>
             ))}
           </div>
-        </div>
+        </div>}
       </div>
     );
   };
@@ -948,6 +1175,26 @@ export default function App() {
   // STUDY GUIDE TAB COMPONENT
   // ============================================================
   const StudyGuideTab = () => {
+    if (IS_POST) {
+      return (
+        <motion.div className="space-y-4" initial="initial" animate="animate" variants={fadeInUp}>
+          <div className="text-center py-4">
+            <h1 className="text-2xl font-display font-bold text-surface-100">Numbers to Know</h1>
+            <p className="text-surface-400 mt-1">The one-page review for the night before the exam</p>
+          </div>
+          {TRACK.quickReference.map(g => (
+            <div key={g.group} className="glass-card p-5">
+              <h3 className="font-display font-semibold text-brand-400 mb-3">{g.group}</h3>
+              <div className="divide-y divide-surface-700/50">
+                {g.items.map(([k, v]) => (
+                  <div key={k} className="flex justify-between gap-4 py-2 text-sm"><span className="text-surface-400">{k}</span><span className="text-surface-100 text-right font-medium">{v}</span></div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </motion.div>
+      );
+    }
     return (
       <StudyGuide 
         onBack={null}
@@ -1002,6 +1249,10 @@ export default function App() {
         )}
       </AnimatePresence>
 
+      {/* Search + first-run tour */}
+      <Search open={searchOpen} onClose={() => setSearchOpen(false)} index={SEARCH_INDEX} onOpen={openTarget} />
+      {showTour && <Onboarding track={TRACK.key} isPost={IS_POST} onDone={() => setShowTour(false)} onSignIn={user ? null : () => setShowAuthModal(true)} />}
+
       {/* Auth Modal */}
       <AuthModal isOpen={showAuthModal} onClose={() => setShowAuthModal(false)} />
 
@@ -1009,13 +1260,16 @@ export default function App() {
       <header className="sticky top-0 z-50 bg-surface-900/80 backdrop-blur-xl border-b border-surface-700/50">
         <div className="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl flex items-center justify-center font-display font-bold text-surface-950" style={{ background: 'linear-gradient(135deg, #eab308, #f59e0b)' }}>FL</div>
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center font-display font-bold text-surface-950" style={{ background: 'linear-gradient(135deg, #eab308, #f59e0b)' }}>{TRACK.badge}</div>
             <div>
-              <h1 className="text-sm font-display font-bold text-surface-100">FL Real Estate Exam</h1>
-              <p className="text-xs text-surface-500">v3.0 Polished</p>
+              <h1 className="text-sm font-display font-bold text-surface-100">{TRACK.name}</h1>
+              <button onClick={() => switchTrack(IS_POST ? 'pre' : 'post')} className="text-xs text-brand-400 hover:text-brand-300 flex items-center gap-1" title="Switch study track">
+                <Repeat className="w-3 h-3" /> Switch to {IS_POST ? TRACKS.pre.name : 'Post-Licensing 45'}
+              </button>
             </div>
           </div>
           <div className="flex items-center gap-4">
+            <button onClick={() => setSearchOpen(true)} className="text-surface-400 hover:text-surface-100" title="Search every lesson"><SearchIcon className="w-5 h-5" /></button>
             {/* Streak */}
             <div className="flex items-center gap-1">
               <span className="streak-fire">🔥</span>
@@ -1032,12 +1286,18 @@ export default function App() {
         <AnimatePresence mode="wait">
           <motion.div key={tab} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.2 }}>
             {tab === 'dashboard' && <Dashboard />}
+            {tab === 'course' && IS_POST && (
+              <Course sections={SECTIONS_DATA} prog={prog} setProg={setProg} onRecord={record} addXP={addXP} updateStreak={updateStreak}
+                askTutor={askTutor} jump={courseJump} clearJump={() => setCourseJump(null)}
+                userName={user?.user_metadata?.full_name || user?.user_metadata?.name || user?.email || ''} isPost />
+            )}
             {tab === 'srs' && <SRS />}
             {tab === 'study' && <Study />}
             {tab === 'guide' && <StudyGuideTab />}
             {tab === 'quiz' && <Quiz />}
             {tab === 'exam' && <Exam />}
             {tab === 'profile' && <Profile />}
+            {tab === 'tutor' && Tutor()}
           </motion.div>
         </AnimatePresence>
       </main>
