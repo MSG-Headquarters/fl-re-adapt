@@ -47,7 +47,7 @@ export const TRACKS = {
     examQuestions: 100,
     examMinutes: 180,
     passPct: 75,
-    studySubtitle: `${POST_TOTALS.units} units · ${POST_TOTALS.questions} practice questions · ${POST_TOTALS.flashcards} flashcards`,
+    studySubtitle: `${POST_TOTALS.units} units · ${POST_TOTALS.lessons} lessons · ${POST_TOTALS.questions} practice questions · ${POST_TOTALS.flashcards} flashcards`,
   },
 };
 

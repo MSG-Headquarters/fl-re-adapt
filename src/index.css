@@ -388,3 +388,9 @@
     box-shadow: none !important;
   }
 }
+
+@media print {
+  header, nav, .xp-popup { display: none !important; }
+  #certificate { background: white !important; border-color: #b8860b !important; }
+  #certificate * { color: #111 !important; }
+}

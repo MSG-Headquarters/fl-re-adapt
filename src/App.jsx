@@ -4,13 +4,18 @@ import {
   LayoutDashboard, Brain, BookOpen, Target, FileText, Scale, Trophy,
   Flame, Star, Zap, ChevronRight, Check, X, Clock, TrendingUp,
   Award, Calendar, BarChart3, GraduationCap, Sparkles, Play, Pause,
-  RotateCcw, ArrowRight, ArrowLeft, Home, Settings, User, Info, MessageCircle, Send, Repeat
+  RotateCcw, ArrowRight, ArrowLeft, Home, Settings, User, Info, MessageCircle, Send, Repeat, Search as SearchIcon, ImagePlus
 } from 'lucide-react';
 import { ACTIVE_TRACK, TRACKS, switchTrack } from './tracks.js';
 import StudyGuide from './components/study/StudyGuide.jsx';
 import { useAuth } from './contexts/AuthContext.jsx';
 import AuthModal from './components/auth/AuthModal.jsx';
 import UserMenu from './components/auth/UserMenu.jsx';
+import Course, { courseState } from './components/course/Course.jsx';
+import Search, { buildIndex } from './components/Search.jsx';
+import Onboarding, { tourSeen } from './components/Onboarding.jsx';
+import LicensePath from './components/LicensePath.jsx';
+import { renderRich } from './richText.jsx';
 
 // ============================================================
 // FL REAL ESTATE EXAM - ADAPTIVE STUDY PLATFORM v3.0 POLISHED
@@ -25,11 +30,12 @@ const CHAPTERS = TRACK.chapters;
 // Track-specific sections drive Study / Quiz / Exam
 const SECTIONS_DATA = TRACK.sections;
 
-// Minimal inline renderer for **bold** in authored content
-const renderRich = (text) => String(text).split(/(\*\*[^*]+\*\*)/g).map((part, i) =>
-  part.startsWith('**') && part.endsWith('**')
-    ? <strong key={i} className="text-surface-100 font-semibold">{part.slice(2, -2)}</strong>
-    : <React.Fragment key={i}>{part}</React.Fragment>);
+// Search index for the active track (lessons for post, chapter sections for pre)
+const SEARCH_INDEX = buildIndex({ isPost: IS_POST, sections: SECTIONS_DATA, chapters: CHAPTERS });
+// Compact lesson map the tutor uses to point at "Covered in" lessons
+const LESSON_MAP = IS_POST
+  ? SECTIONS_DATA.flatMap(u => u.sections.map(l => ({ id: `${u.id}:${l.id}`, title: `Unit ${u.num} · ${l.title}` })))
+  : SECTIONS_DATA.map(sec => ({ id: `sec:${sec.id}`, title: sec.title }));
 
 // Extract all flashcards from new CHAPTERS data
 const getAllFlashcardsFromChapters = () => {
@@ -122,7 +128,11 @@ export default function App() {
   const [tutorMsgs, setTutorMsgs] = useState([]);
   const [tutorInput, setTutorInput] = useState('');
   const [tutorBusy, setTutorBusy] = useState(false);
+  const [tutorImage, setTutorImage] = useState(null); // { name, media_type, data, url }
   const cloudBlobRef = useRef(null); // full cloud progress blob (holds both tracks)
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [courseJump, setCourseJump] = useState(null);
+  const [showTour, setShowTour] = useState(() => !tourSeen(TRACK.key));
   
   const [srsMode, setSrsMode] = useState(false);
   const [srsDeck, setSrsDeck] = useState([]);
@@ -362,37 +372,53 @@ export default function App() {
 
   const navItems = [
     { id: 'dashboard', icon: LayoutDashboard, label: 'Home' },
+    IS_POST ? { id: 'course', icon: GraduationCap, label: 'Course' } : null,
     { id: 'srs', icon: Brain, label: 'Cards' },
-    { id: 'study', icon: BookOpen, label: 'Study' },
+    IS_POST ? null : { id: 'study', icon: BookOpen, label: 'Study' },
     { id: 'guide', icon: FileText, label: 'Guide' },
     { id: 'quiz', icon: Target, label: 'Quiz' },
     { id: 'exam', icon: Scale, label: 'Exam' },
     { id: 'tutor', icon: MessageCircle, label: 'Tutor' },
     { id: 'profile', icon: Trophy, label: 'Profile' },
-  ];
+  ].filter(Boolean);
+
+  // Open a search hit or a tutor "Covered in" link
+  const openTarget = (t) => {
+    if (!t) return;
+    if (IS_POST) { setCourseJump(t); setTab('course'); }
+    else if (t.sid !== undefined) { setSection(t.sid); setTab('study'); }
+  };
+  const openLessonId = (id) => {
+    if (IS_POST) { const [uid, lid] = id.split(':'); openTarget({ kind: 'lesson', uid, lid }); }
+    else { const sid = id.replace(/^sec:/, ''); openTarget({ sid: isNaN(+sid) ? sid : +sid }); }
+  };
+  const lessonTitle = (id) => LESSON_MAP.find(l => l.id === id)?.title || id;
 
   // ============================================================
   // AI TUTOR
   // ============================================================
   const askTutor = async (text, openTab = false) => {
-    const content = (text || '').trim();
+    const content = (text || '').trim() || (tutorImage ? 'Explain this question: which answer is correct and why?' : '');
     if (!content || tutorBusy) return;
     if (openTab) setTab('tutor');
-    const history = [...tutorMsgs, { role: 'user', content }];
+    const img = tutorImage;
+    const history = [...tutorMsgs, { role: 'user', content, imageUrl: img?.url }];
     setTutorMsgs(history);
     setTutorInput('');
+    setTutorImage(null);
     setTutorBusy(true);
     try {
       const res = await fetch('/api/ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          messages: history.slice(-12),
-          context: { track: TRACK.key, overallMastery: overall(), weakAreas: weak().map(w => ({ title: w.title })) },
+          messages: history.slice(-12).map(m => ({ role: m.role, content: m.content })),
+          image: img ? { media_type: img.media_type, data: img.data } : undefined,
+          context: { track: TRACK.key, overallMastery: overall(), weakAreas: weak().map(w => ({ title: w.title })), lessons: LESSON_MAP },
         }),
       });
       const data = await res.json();
-      setTutorMsgs(m => [...m, { role: 'assistant', content: data.response || 'No response.' }]);
+      setTutorMsgs(m => [...m, { role: 'assistant', content: data.response || 'No response.', covered: (data.covered || []).filter(id => LESSON_MAP.some(l => l.id === id)) }]);
     } catch {
       setTutorMsgs(m => [...m, { role: 'assistant', content: 'The tutor is unreachable right now. Check the server and ANTHROPIC_API_KEY.' }]);
     } finally {
@@ -400,15 +426,25 @@ export default function App() {
     }
   };
 
+  // Screenshot / image attachment for the tutor (paste, drop or pick)
+  const attachImage = (file) => {
+    if (!file || !/^image\/(png|jpe?g|gif|webp)$/.test(file.type)) return;
+    if (file.size > 4.5 * 1024 * 1024) { alert('That image is over 4.5 MB. Try a smaller screenshot.'); return; }
+    const r = new FileReader();
+    r.onload = () => { const url = String(r.result); setTutorImage({ name: file.name || 'screenshot', media_type: file.type === 'image/jpg' ? 'image/jpeg' : file.type, data: url.split(',')[1], url }); };
+    r.readAsDataURL(file);
+  };
+
   const tutorStarters = IS_POST
-    ? ['Quiz me on escrow timelines', 'Explain transaction broker vs single agent', 'Walk me through a doc stamp calculation', 'What are my weakest units and what should I drill?']
+    ? ['Quiz me on escrow timelines', 'Explain transaction broker vs single agent', 'Walk me through a tax proration', 'What are my weakest units and what should I drill?']
     : ['Explain the Mrs. Murphy exemption', 'Quiz me on Chapter 475', 'What are common exam traps?', 'What should I study next?'];
 
   const Tutor = () => (
-    <motion.div className="space-y-4" initial="initial" animate="animate" variants={fadeInUp}>
+    <motion.div className="space-y-4" initial="initial" animate="animate" variants={fadeInUp}
+      onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); attachImage(e.dataTransfer.files?.[0]); }}>
       <div className="text-center py-2">
         <h1 className="text-2xl font-display font-bold text-surface-100">AI Tutor</h1>
-        <p className="text-surface-400 mt-1 text-sm">Knows your weak areas. Ask anything, or have it quiz you.</p>
+        <p className="text-surface-400 mt-1 text-sm">Knows your weak areas. Ask anything, paste a screenshot of a question, or have it quiz you.</p>
       </div>
       <div className="glass-card p-4 space-y-3 min-h-[40vh]">
         {tutorMsgs.length === 0 && (
@@ -417,13 +453,33 @@ export default function App() {
           </div>
         )}
         {tutorMsgs.map((m, i) => (
-          <div key={i} className={'rounded-xl p-3 text-sm whitespace-pre-wrap ' + (m.role === 'user' ? 'bg-brand-500/15 text-surface-100 ml-8' : 'bg-surface-800/70 text-surface-200 mr-8')}>{renderRich(m.content)}</div>
+          <div key={i} className={'rounded-xl p-3 text-sm ' + (m.role === 'user' ? 'bg-brand-500/15 text-surface-100 ml-8' : 'bg-surface-800/70 text-surface-200 mr-8')}>
+            {m.imageUrl && <img src={m.imageUrl} alt="attached screenshot" className="rounded-lg mb-2 max-h-48" />}
+            <div className="whitespace-pre-wrap">{renderRich(m.content)}</div>
+            {m.covered?.length > 0 && (
+              <div className="mt-3 pt-2 border-t border-surface-700/60">
+                <div className="text-xs text-surface-500 mb-1">Covered in</div>
+                <div className="flex flex-wrap gap-2">{m.covered.map(id => <button key={id} onClick={() => openLessonId(id)} className="text-xs rounded-lg px-2 py-1 bg-brand-500/15 text-brand-300 hover:bg-brand-500/25">{lessonTitle(id)} →</button>)}</div>
+              </div>
+            )}
+          </div>
         ))}
         {tutorBusy && <div className="text-surface-500 text-sm">Thinking…</div>}
       </div>
+      {tutorImage && (
+        <div className="flex items-center gap-3 glass-card p-2">
+          <img src={tutorImage.url} alt="" className="h-12 rounded" />
+          <span className="text-xs text-surface-400 flex-1 truncate">{tutorImage.name}</span>
+          <button onClick={() => setTutorImage(null)} className="text-surface-500 hover:text-surface-200"><X className="w-4 h-4" /></button>
+        </div>
+      )}
       <form onSubmit={e => { e.preventDefault(); askTutor(tutorInput); }} className="flex gap-2">
-        <input value={tutorInput} onChange={e => setTutorInput(e.target.value)} placeholder="Ask the tutor…" className="flex-1 rounded-xl bg-surface-800 border border-surface-700 px-4 py-3 text-surface-100 text-sm focus:outline-none focus:border-brand-500" autoFocus />
-        <button type="submit" disabled={tutorBusy || !tutorInput.trim()} className="btn-primary px-4 disabled:opacity-50"><Send className="w-4 h-4" /></button>
+        <label className="btn-secondary px-3 flex items-center cursor-pointer" title="Attach a screenshot">
+          <ImagePlus className="w-4 h-4" />
+          <input type="file" accept="image/png,image/jpeg,image/gif,image/webp" className="hidden" onChange={e => { attachImage(e.target.files?.[0]); e.target.value = ''; }} />
+        </label>
+        <input value={tutorInput} onChange={e => setTutorInput(e.target.value)} onPaste={e => { const f = [...(e.clipboardData?.files || [])].find(x => x.type.startsWith('image/')); if (f) { e.preventDefault(); attachImage(f); } }} placeholder="Ask the tutor… (paste a screenshot)" className="flex-1 rounded-xl bg-surface-800 border border-surface-700 px-4 py-3 text-surface-100 text-sm focus:outline-none focus:border-brand-500" autoFocus />
+        <button type="submit" disabled={tutorBusy || (!tutorInput.trim() && !tutorImage)} className="btn-primary px-4 disabled:opacity-50"><Send className="w-4 h-4" /></button>
       </form>
       {tutorMsgs.length > 0 && <button onClick={() => setTutorMsgs([])} className="text-xs text-surface-500 hover:text-surface-300">Clear conversation</button>}
     </motion.div>
@@ -487,6 +543,26 @@ export default function App() {
             </motion.div>
           ))}
         </motion.div>
+
+        {/* Course progress (post) / licensing path (pre) */}
+        {IS_POST ? (() => {
+          const cs = courseState(SECTIONS_DATA, prog.course);
+          return (
+            <motion.div variants={fadeInUp} className="glass-card p-5 cursor-pointer" onClick={() => setTab('course')} whileHover={{ scale: 1.01 }}>
+              <div className="flex items-center gap-4">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-brand-500 to-amber-600 flex items-center justify-center"><GraduationCap className="w-7 h-7 text-surface-950" /></div>
+                <div className="flex-1 min-w-0">
+                  <h3 className="font-display font-semibold text-surface-100">Post-Licensing 45 course</h3>
+                  <p className="text-surface-400 text-sm truncate">{cs.next.kind === 'orientation' ? 'Start with the 5-minute orientation' : cs.next.kind === 'certificate' ? 'Complete — view your certificate' : 'Next: ' + cs.next.label}</p>
+                  <div className="progress-track mt-2"><div className="progress-fill" style={{ width: cs.pct + '%' }} /></div>
+                </div>
+                <div className="text-2xl font-display font-bold text-brand-400">{cs.pct}%</div>
+              </div>
+            </motion.div>
+          );
+        })() : (
+          <motion.div variants={fadeInUp}><LicensePath current="pre" /></motion.div>
+        )}
 
         {/* SRS Card */}
         {(srsStatsData.dueNow > 0 || srsStatsData.newCards > 0) && (
@@ -557,7 +633,7 @@ export default function App() {
           <motion.button onClick={() => { startExam(); setTab('exam'); }} className="glass-card-hover p-5 text-left" whileHover={{ scale: 1.02 }}>
             <FileText className="w-8 h-8 text-blue-400 mb-3" />
             <h3 className="font-display font-semibold text-surface-100">Practice Exam</h3>
-            <p className="text-sm text-surface-400 mt-1">100 questions, 3.5 hours</p>
+            <p className="text-sm text-surface-400 mt-1">{TRACK.examQuestions} questions, {TRACK.examMinutes / 60} hours</p>
           </motion.button>
         </motion.div>
       </motion.div>
@@ -1173,6 +1249,10 @@ export default function App() {
         )}
       </AnimatePresence>
 
+      {/* Search + first-run tour */}
+      <Search open={searchOpen} onClose={() => setSearchOpen(false)} index={SEARCH_INDEX} onOpen={openTarget} />
+      {showTour && <Onboarding track={TRACK.key} isPost={IS_POST} onDone={() => setShowTour(false)} onSignIn={user ? null : () => setShowAuthModal(true)} />}
+
       {/* Auth Modal */}
       <AuthModal isOpen={showAuthModal} onClose={() => setShowAuthModal(false)} />
 
@@ -1189,6 +1269,7 @@ export default function App() {
             </div>
           </div>
           <div className="flex items-center gap-4">
+            <button onClick={() => setSearchOpen(true)} className="text-surface-400 hover:text-surface-100" title="Search every lesson"><SearchIcon className="w-5 h-5" /></button>
             {/* Streak */}
             <div className="flex items-center gap-1">
               <span className="streak-fire">🔥</span>
@@ -1205,6 +1286,11 @@ export default function App() {
         <AnimatePresence mode="wait">
           <motion.div key={tab} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.2 }}>
             {tab === 'dashboard' && <Dashboard />}
+            {tab === 'course' && IS_POST && (
+              <Course sections={SECTIONS_DATA} prog={prog} setProg={setProg} onRecord={record} addXP={addXP} updateStreak={updateStreak}
+                askTutor={askTutor} jump={courseJump} clearJump={() => setCourseJump(null)}
+                userName={user?.user_metadata?.full_name || user?.user_metadata?.name || user?.email || ''} isPost />
+            )}
             {tab === 'srs' && <SRS />}
             {tab === 'study' && <Study />}
             {tab === 'guide' && <StudyGuideTab />}

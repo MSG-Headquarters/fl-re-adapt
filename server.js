@@ -16,7 +16,7 @@ const anthropic = new Anthropic({
 });
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '8mb' }));
 
 // Serve static files from dist folder
 app.use(express.static(path.join(__dirname, 'dist')));
@@ -31,9 +31,10 @@ The student is a practicing Florida sales associate in Southwest Florida. Topics
 
 app.post('/api/ai', async (req, res) => {
   try {
-    const { query, messages, context } = req.body || {};
+    const { query, messages, context, image } = req.body || {};
     const track = context?.track === 'post' ? 'post' : 'pre';
     const weak = (context?.weakAreas || []).map(w => w.title).join(', ') || 'None identified yet';
+    const lessons = Array.isArray(context?.lessons) ? context.lessons.slice(0, 120).filter(l => l && l.id && l.title) : [];
 
     const systemPrompt = `${TRACK_PROMPTS[track]}
 
@@ -45,8 +46,15 @@ Guidelines:
 - Be accurate first. Cite the statute, rule, or federal law when it helps. If something is uncertain or recently changed, say so and suggest verifying with the course material.
 - Explain WHY a rule exists, not just WHAT it is, and point out the exam trap.
 - When asked to quiz, ask ONE multiple-choice question at a time (A–D), wait for the answer, then explain.
-- For math (closing costs, prorations, NOI/cap rate, commissions), show the steps.
-- Keep answers short and scannable. Use **bold** for key terms and numbers.`;
+- For math (closing costs, prorations, NOI/cap rate, commissions, LTV, PITI), show the formula, then each step with numbers, then the answer in **bold**. Course conventions: 365-day year; the buyer owns the day of closing; Florida property taxes are paid in arrears (seller's share = debit seller, credit buyer); deed doc stamps $0.70 per $100 (round up to the next $100), note stamps $0.35 per $100, intangible tax 0.002 × new mortgage; prepaid interest runs from closing through the end of that month.
+- If a screenshot of a practice question is attached, name the tested concept, give the correct choice and say why the most tempting wrong choice is wrong. If it is clearly a graded FINAL exam in progress (not a practice exam), do not pick the answer — teach the concept instead.
+- Keep answers short and scannable. Use **bold** for key terms and numbers.${lessons.length ? `
+
+Lessons in the student's course (id — title):
+${lessons.map(l => `${String(l.id).slice(0, 40)} — ${String(l.title).slice(0, 90)}`).join('\n')}
+
+After your answer, add one final line exactly in this form, listing 1–3 lesson ids that teach this topic (most relevant first), or nothing after the colon if none fit:
+COVERED: id1, id2` : ''}`;
 
     const convo = Array.isArray(messages) && messages.length
       ? messages
@@ -57,17 +65,33 @@ Guidelines:
     while (convo.length && convo[0].role !== 'user') convo.shift();
     if (!convo.length) return res.status(400).json({ success: false, response: 'Ask a question to get started.' });
 
+    // Attach a screenshot to the latest user turn
+    const okType = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+    if (image && okType.includes(image.media_type) && typeof image.data === 'string' && image.data.length < 7_000_000) {
+      const last = convo[convo.length - 1];
+      if (last.role === 'user') last.content = [
+        { type: 'image', source: { type: 'base64', media_type: image.media_type, data: image.data } },
+        { type: 'text', text: last.content },
+      ];
+    }
+
     const message = await anthropic.messages.create({
       model: process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-20250514',
-      max_tokens: 1024,
+      max_tokens: 1200,
       system: systemPrompt,
       messages: convo,
     });
 
-    res.json({
-      response: message.content.map(b => b.text || '').join(''),
-      success: true
-    });
+    let text = message.content.map(b => b.text || '').join('');
+    let covered = [];
+    const m = text.match(/\n?\s*COVERED:\s*([^\n]*)\s*$/i);
+    if (m) {
+      const valid = new Set(lessons.map(l => String(l.id)));
+      covered = m[1].split(/[,\s]+/).map(x => x.trim()).filter(x => valid.has(x)).slice(0, 3);
+      text = text.slice(0, m.index).trimEnd();
+    }
+
+    res.json({ response: text, covered, success: true });
   } catch (error) {
     console.error('AI Error:', error);
     res.status(500).json({

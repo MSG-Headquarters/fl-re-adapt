@@ -196,16 +196,16 @@ Escrow accounts may be interest-bearing if:
 
 **Commingling** = mixing personal/business funds with escrow funds
 
-This is **PROHIBITED**. However, a broker MAY keep up to **$5,000** of personal or business funds in escrow to cover bank fees and maintain minimum balance (but is not required to).`,
+This is **PROHIBITED**. However, a broker MAY keep up to **$1,000** of personal or business funds in a **sales** escrow account, and up to **$5,000** in a **property management** escrow account, to cover bank fees and maintain a minimum balance (but is not required to).`,
       keyPoints: [
         'Escrow must be demand deposit (checking) in Florida bank',
         'Account name must include broker name + "escrow" or "trust"',
         'Broker is ALWAYS responsible even if others have signatory authority',
-        'Broker may keep up to $5,000 personal funds in escrow',
+        'Personal funds allowed in escrow: $1,000 sales account, $5,000 property management account',
         'Interest-bearing accounts require written agreement from all parties'
       ],
       examTips: [
-        '$5,000 maximum personal funds allowed in escrow',
+        'Personal funds cap: $1,000 in a sales escrow account; $5,000 in a property management account',
         'Account MUST be in Florida (not out of state)',
         'Must be checking account (demand deposit)',
         'Broker liable even if sales associate makes withdrawal'
@@ -861,15 +861,15 @@ A license may be **immediately suspended** if the licensee:
       explanation: 'The broker must deposit funds by the end of the third business day. Monday (day 1), Tuesday (day 2), Wednesday (day 3), Thursday (end of 3rd business day).'
     },
     {
-      question: 'What is the maximum amount of personal funds a broker may keep in an escrow account?',
+      question: 'What is the maximum amount of personal funds a broker may keep in a sales escrow account?',
       options: [
         '$1,000',
         '$2,500',
         '$5,000',
         '$10,000'
       ],
-      correct: 2,
-      explanation: 'A broker may keep up to $5,000 of personal or business funds in an escrow account to cover bank fees and maintain minimum balance requirements.'
+      correct: 0,
+      explanation: 'A broker may keep up to $1,000 of personal or business funds in a sales escrow account (and up to $5,000 in a property management escrow account) to cover bank fees and minimum balances.'
     },
     {
       question: 'A sales associate receives an earnest money check on Wednesday. When must she deliver it to her broker?',
@@ -1039,7 +1039,7 @@ A license may be **immediately suspended** if the licensee:
 
 **Office Requirements**: Register all offices, sign must show broker name + "Licensed Real Estate Broker". P.O. boxes not allowed. Home office exempt from sign if no clients visit.
 
-**Escrow Accounts**: Must be demand deposit (checking) in Florida bank. Account name includes broker + "escrow/trust". Broker may keep up to $5,000 personal funds. Monthly reconciliation required within 10 business days.
+**Escrow Accounts**: Must be demand deposit (checking) in Florida bank. Account name includes broker + "escrow/trust". Broker may keep up to $1,000 personal funds in a sales escrow account ($5,000 for property management). Monthly reconciliation required within 10 business days.
 
 **Deposit Timeline**:
 - Sales associate → broker: End of NEXT business day
